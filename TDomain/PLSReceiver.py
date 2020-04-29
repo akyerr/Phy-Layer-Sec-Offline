@@ -1,4 +1,4 @@
-from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp
+from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere
 from numpy.random import normal
 from numpy.fft import fft
 from numpy.linalg import svd
@@ -47,6 +47,8 @@ class PLSReceiver:
         self.SNRdB = SNRdB
         self.SNR_type = SNR_type
 
+        self.codebook = pls_params.codebook
+
     def receive_sig_process(self, buffer_tx_time, ref_sig):
         """
         This method deals with all the receiver functions - generate rx signal (over channel + noise), synhronization,
@@ -69,7 +71,9 @@ class PLSReceiver:
         # SVD in each sub-band
         lsv, _, rsv = self.sv_decomp(chan_est_sb)
 
-        return lsv, rsv
+        # rsv is supposed to be the received dft precoder
+        bits_sb_estimate = self.PMI_estimate(rsv)[1]
+        return lsv, rsv, bits_sb_estimate
 
     def rx_signal_gen(self, buffer_tx_time):
         """
@@ -160,6 +164,7 @@ class PLSReceiver:
         :param ref_sig: QPSK ref signals on each bin for each data symbol
         :return chan_est_bins: Estimated channel in each of the used data bins
         """
+        SNRlin = 10**(self.SNRdB/10)
         chan_est_bins = zeros((self.num_ant, self.num_data_symb*self.num_data_bins), dtype=complex)
         for symb in range(self.num_data_symb):
             symb_start = symb*self.NFFT
@@ -171,7 +176,8 @@ class PLSReceiver:
                 time_data = buffer_rx_data[ant, symb_start: symb_end]
                 data_fft = fft(time_data, self.NFFT)
                 data_in_used_bins = data_fft[self.used_data_bins]
-                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins/ref_sig[symb, :] # channel at the used bins
+
+                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
         # print(chan_est.shape)
         return chan_est_bins
 
@@ -213,3 +219,27 @@ class PLSReceiver:
                 rsv[symb, sb] = dot(V, ph_shift_v)
 
         return lsv, sval, rsv
+
+    @staticmethod
+    def dec2binary(x, num_bits):
+        bit_str = [char for char in format(x[0, 0], '0' + str(num_bits) + 'b')]
+        bits = array([int(char) for char in bit_str])
+        return bits
+
+    def PMI_estimate(self, rx_precoder):
+        PMI_sb_estimate = zeros((self.num_data_symb, self.num_subbands), dtype=int)
+        bits_sb_estimate = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        for symb in range(self.num_data_symb):
+            for sb in range(self.num_subbands):
+                dist = zeros(len(self.codebook), dtype=float)
+
+                for prec in range(len(self.codebook)):
+                    diff = rx_precoder[symb, sb] - self.codebook[prec]
+                    diff_squared = real(diff*conj(diff))
+                    dist[prec] = sqrt(diff_squared.sum())
+                min_dist = min(dist)
+                PMI_estimate = argwhere(dist == min_dist)
+                PMI_sb_estimate[symb, sb] = PMI_estimate
+                bits_sb_estimate[symb, sb] = self.dec2binary(PMI_estimate, self.bit_codebook)
+
+        return PMI_sb_estimate, bits_sb_estimate

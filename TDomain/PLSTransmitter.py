@@ -56,9 +56,7 @@ class PLSTransmitter:
             precoders = self.unitary_gen()
         elif tx_node == 'Bob':
             pvt_info_bits = args[2]
-            print(pvt_info_bits)
             rotation_mat = args[3]
-            # map secret bits to sub-bands
             bits_subband = self.map_bits2subband(pvt_info_bits)
             dft_precoders = self.codebook_select(bits_subband)
             precoders = self.rotated_preocder('Bob', dft_precoders, rotation_mat)
