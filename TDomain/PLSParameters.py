@@ -5,6 +5,11 @@ from numpy.linalg import norm
 class PLSParameters:
 
     def __init__(self, prof):
+        """
+        Initialization of class
+        :param prof: PLS profile containing basic parameters such as bandwidth, antennas bin spacing, bits in codebook
+        index and the synch data pattern (How many synchs vs how many datas)
+        """
         self.bandwidth = prof['bandwidth']
         self.bin_spacing = prof['bin_spacing']
         self.num_ant = prof['num_ant']
@@ -61,6 +66,11 @@ class PLSParameters:
 
 
     def codebook_gen(self):
+        """
+        Generate a DFT codebook.
+        :return: Matrix of codebook entries. Each entry is a antenna x antenna matrix. Number of entries = 2^n where n
+        is the number of bits in each codebook index (self.bit_codebook)
+        """
         num_precoders = 2**self.bit_codebook
         codebook = zeros(num_precoders, dtype=object)
 

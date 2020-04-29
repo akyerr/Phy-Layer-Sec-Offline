@@ -44,18 +44,21 @@ class SynchSignal:
 
         total_symb_count = 0
         synch_symb_count = 0
+        self.synch_start = list()
         for symb in self.symb_pattern.tolist():
             if symb == 0:
                 symb_start = total_symb_count*self.OFDMsymb_len
                 symb_end = symb_start + self.OFDMsymb_len
                 # print(symb_start, symb_end)
+                self.synch_start.append(symb_start)
                 self.synch_mask[0, symb_start: symb_end] = self.synch_signals[synch_symb_count]
                 synch_symb_count += 1
 
             total_symb_count += 1
-        # plt.plot(self.synch_mask[0, :].real)
-        # plt.plot(self.synch_mask[0, :].imag)
-        # plt.show()
+        print(self.synch_start)
+        plt.plot(self.synch_mask[0, :].real)
+        plt.plot(self.synch_mask[0, :].imag)
+        plt.show()
 
     def zadoff_chu_gen(self, prime):
         x0 = array(range(0, self.num_synch_bins))
