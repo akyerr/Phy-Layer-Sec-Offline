@@ -1,5 +1,7 @@
-from numpy import conj, prod, sqrt, convolve, zeros, var
+from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp
 from numpy.random import normal
+from numpy.fft import fft
+from numpy.linalg import svd
 import matplotlib.pyplot as plt
 
 
@@ -45,28 +47,35 @@ class PLSReceiver:
         self.SNRdB = SNRdB
         self.SNR_type = SNR_type
 
-    def receive_sig_process(self, buffer_tx_time):
+    def receive_sig_process(self, buffer_tx_time, ref_sig):
         """
         This method deals with all the receiver functions - generate rx signal (over channel + noise), synhronization,
         channel estimation, SVD, precoder detection, bit recovery
         :param buffer_tx_time: Time domain buffer of OFDM symbols (synch + data). Ready to send over channel.
+        :param ref_sig: Matrix of QPSK reference signals. QPSK values for each frequency bin in each data symbol
         :return:
         """
         buffer_rx_time = self.rx_signal_gen(buffer_tx_time)
 
-        plt.plot(buffer_rx_time[0, :].real)
-        plt.plot(buffer_rx_time[0, :].imag)
-        plt.show()
-
         # synchronization - return just data symbols with CP removed
-        # buffer_rx_data = self.synchronize(buffer_rx_time)
+        buffer_rx_data = self.synchronize(buffer_rx_time)
 
+        # Channel estimation in each of the used bins
+        chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig)
+
+        # Map bins to sub-bands to form matrices for SVD - gives estimated channel matrix in each sub-band
+        chan_est_sb = self.bins2subbands(chan_est_bins)
+
+        # SVD in each sub-band
+        lsv, _, rsv = self.sv_decomp(chan_est_sb)
+
+        return lsv, rsv
 
     def rx_signal_gen(self, buffer_tx_time):
         """
         Generates the time domain rx signal at each receive antenna (Convolution with channel and add noise)
         :param buffer_tx_time: Time domain tx signal streams on each antenna (matrix)
-        :return: Time domain rx signal at each receive antenna
+        :return buffer_rx_time: Time domain rx signal at each receive antenna
         """
         buffer_rx_time = zeros((self.num_ant,self.total_symb_len + self.max_impulse - 1), dtype=complex)
         for rx in range(self.num_ant):
@@ -86,7 +95,7 @@ class PLSReceiver:
         """
         Adds AWGN noise on per antenna basis
         :param in_signal: Input signal
-        :return: Signal with AWGN added on per antenna basis
+        :return noisy_signal: Signal with AWGN added on per antenna basis
         """
 
         sig_pow = var(in_signal)  # Determine the expected value of tx signal power
@@ -116,7 +125,91 @@ class PLSReceiver:
         """
         Time domain synchronization - correlation with Zadoff Chu Synch mask
         :param buffer_rx_time: Time domain rx signal at each receive antenna
-        :return: Time domain rx signal at each receive antenna with CP removed
+        :return buffer_rx_data: Time domain rx signal at each receive antenna with CP removed
         """
         buffer_rx_data = zeros((self.num_ant, self.num_data_symb*self.NFFT), dtype=complex)
-        # for
+
+        total_symb_count = 0
+        synch_symb_count = 0
+        data_symb_count = 0
+        for symb in self.symb_pattern.tolist():
+            symb_start = total_symb_count * self.OFDMsymb_len
+            symb_end = symb_start + self.OFDMsymb_len
+            # print(symb_start, symb_end)
+            if int(symb) == 0:
+                synch_symb_count += 1
+            else:
+                # print(symb, symb_start, symb_end)
+                data_start = data_symb_count * self.NFFT
+                data_end = data_start + self.NFFT
+                # print(data_start, data_end)
+                # print(time_ofdm_data_symbols[:, data_start: data_end])
+                data_with_CP = buffer_rx_time[:,  symb_start: symb_end]
+                data_without_CP = data_with_CP[:, self.CP: ]
+                buffer_rx_data[:, data_start: data_end] = data_without_CP
+                data_symb_count += 1
+
+            total_symb_count += 1
+        # print(buffer_rx_data.shape)
+        return buffer_rx_data
+
+    def channel_estimate(self, buffer_rx_data, ref_sig):
+        """
+        In PLS, only refeence signals are sent. So we use the data symbols to estimate the chanel rather than the synch.
+        :param buffer_rx_data: Buffer of rx data symbols with CP removed
+        :param ref_sig: QPSK ref signals on each bin for each data symbol
+        :return chan_est_bins: Estimated channel in each of the used data bins
+        """
+        chan_est_bins = zeros((self.num_ant, self.num_data_symb*self.num_data_bins), dtype=complex)
+        for symb in range(self.num_data_symb):
+            symb_start = symb*self.NFFT
+            symb_end = symb_start + self.NFFT
+
+            used_symb_start = symb*self.num_data_bins
+            used_symb_end = used_symb_start + self.num_data_bins
+            for ant in range(self.num_ant):
+                time_data = buffer_rx_data[ant, symb_start: symb_end]
+                data_fft = fft(time_data, self.NFFT)
+                data_in_used_bins = data_fft[self.used_data_bins]
+                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins/ref_sig[symb, :] # channel at the used bins
+        # print(chan_est.shape)
+        return chan_est_bins
+
+    def bins2subbands(self, chan_est_bins):
+        """
+        Example: if num antenna = 2, every 2 adjacent bins form a sub-band. Each bin has a column vector (num antennas)
+        By combining two adjacent column vectors, we get a matrix in each sub-band.
+        :param chan_est_bins: Estimated channel at each used data frequency bin on each antenna
+        :return chan_est_sb: channel matrix for each sub-band for each symbol
+        """
+
+        chan_est_sb = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        for symb in range(self.num_data_symb):
+            symb_start = symb*self.num_data_bins
+            symb_end = symb_start + self.num_data_bins
+            chan_est = chan_est_bins[:, symb_start: symb_end] # extract est channel in one symbol
+            for sb in range(self.num_subbands):
+                sb_start = sb*self.subband_size
+                sb_end = sb_start + self.subband_size
+
+                chan_est_sb[symb, sb] = chan_est[:, sb_start: sb_end]
+        # print(chan_est_sb[23])
+        return chan_est_sb
+
+    def sv_decomp(self, chan_est_sb):
+        lsv = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        sval = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        rsv = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+
+        for symb in range(self.num_data_symb):
+            for sb in range(0, self.num_subbands):
+                U, S, VH = svd(chan_est_sb[symb, sb])
+                # print(chan_est_sb[symb, sb].shape)
+                V = conj(VH).T
+                ph_shift_u = diag(exp(-1j * angle(U[0, :])))
+                ph_shift_v = diag(exp(-1j * angle(V[0, :])))
+                lsv[symb, sb] = dot(U, ph_shift_u)
+                sval[symb, sb] = S
+                rsv[symb, sb] = dot(V, ph_shift_v)
+
+        return lsv, sval, rsv

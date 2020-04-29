@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 
 class SynchSignal:
-    def __init__(self, pls_params, num_synch_symb, symb_pattern):
+    def __init__(self, pls_params, num_synch_symb, num_data_symb, symb_pattern):
         self.bandwidth = pls_params.bandwidth
         self.bin_spacing = pls_params.bin_spacing
         self.num_ant = pls_params.num_ant
@@ -23,7 +23,8 @@ class SynchSignal:
         pos_synch_bins = list(range(DC_index + 1, DC_index + int(self.num_synch_bins / 2) + 1))
         self.used_synch_bins = array(neg_synch_bins + pos_synch_bins)
 
-        self.prime_nos = [23, 41] * 5
+        self.num_data_symb = num_data_symb
+        self.prime_nos = [23, 41] * self.num_data_symb
         assert len(self.prime_nos) == self.num_synch_symb
 
         self.synch_signals = zeros((self.num_synch_symb, self.OFDMsymb_len), dtype=complex)
@@ -55,10 +56,10 @@ class SynchSignal:
                 synch_symb_count += 1
 
             total_symb_count += 1
-        print(self.synch_start)
-        plt.plot(self.synch_mask[0, :].real)
-        plt.plot(self.synch_mask[0, :].imag)
-        plt.show()
+        # print(self.synch_start)
+        # plt.plot(self.synch_mask[0, :].real)
+        # plt.plot(self.synch_mask[0, :].imag)
+        # plt.show()
 
     def zadoff_chu_gen(self, prime):
         x0 = array(range(0, self.num_synch_bins))

@@ -1,4 +1,4 @@
-from numpy import pi, exp, array, zeros, dot, diag, concatenate
+from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var
 from numpy.fft import ifft
 from numpy.random import choice, uniform
 from numpy.linalg import qr
@@ -6,12 +6,15 @@ import matplotlib.pyplot as plt
 
 
 class PLSTransmitter:
-    def __init__(self, pls_params, synch, symb_pattern):
+    def __init__(self, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb):
         """
         Initialization of class
         :param pls_params: object from PLSParameters class containing basic parameters
         :param synch: object of SynchSignal class containing synch parameters and synch mask
         :param symb_pattern: List of 0s and 1s representing pattern of symbols - synch is represented by 0, data by 1
+        :param total_num_symb: Total number of OFDM symbols (synch + data)
+        :param num_data_symb: Number of data OFDM symbols
+        :param num_synch_symb: Number of synch OFDM symbols
         """
         self.bandwidth = pls_params.bandwidth
         self.bin_spacing = pls_params.bin_spacing
@@ -32,6 +35,12 @@ class PLSTransmitter:
         self.synch = synch
         self.symb_pattern = symb_pattern
 
+        self.total_num_symb = total_num_symb
+        self.num_data_symb = num_data_symb
+        self.num_synch_symb = num_synch_symb
+
+        self.codebook = pls_params.codebook
+
     def transmit_signal_gen(self, *args):
         """
         This method deals with all the transmitter functions - gen ref signals, precoding, OFDM mod, IFFT, CP
@@ -41,47 +50,52 @@ class PLSTransmitter:
 
         tx_node = args[0]
         num_data_symb = args[1]
-        ref_sig = self.ref_signal_gen(num_data_symb)
 
-        if tx_node == 'Alice0' and len(args) == 2:
-            precoders = self.unitary_gen(num_data_symb)
+
+        if tx_node == 'Alice0':
+            precoders = self.unitary_gen()
         elif tx_node == 'Bob':
-            precoders = None
+            pvt_info_bits = args[2]
+            print(pvt_info_bits)
+            rotation_mat = args[3]
+            # map secret bits to sub-bands
+            bits_subband = self.map_bits2subband(pvt_info_bits)
+            dft_precoders = self.codebook_select(bits_subband)
+            precoders = self.rotated_preocder('Bob', dft_precoders, rotation_mat)
         elif tx_node == 'Alice1':
             precoders = None
         else:
             precoders = None
             print('Error')
 
+        ref_sig = self.ref_signal_gen()
         freq_bin_data = self.apply_precoders(precoders, ref_sig, num_data_symb)
         time_ofdm_data_symbols = self.ofdm_modulate(num_data_symb, freq_bin_data)
         buffer_tx_time = self.synch_data_mux(time_ofdm_data_symbols)
 
-        return buffer_tx_time
+        return buffer_tx_time, ref_sig
 
     # QPSK reference signals
-    def ref_signal_gen(self, num_data_symb):
+    def ref_signal_gen(self):
         """
         Generate QPSK reference signals for each frequency bin in each data symbol
-        :param num_data_symb: Total number of data OFDM symbols
         :return: Matrix of QPSK reference signals
         Same ref signal on both antennas in a bin. (Can be changed later)
         """
-        ref_sig = zeros((num_data_symb, self.num_data_bins), dtype=complex)
-        for symb in range(num_data_symb):
+        ref_sig = zeros((self.num_data_symb, self.num_data_bins), dtype=complex)
+        for symb in range(self.num_data_symb):
             for fbin in range(self.num_data_bins):
                 ref_sig[symb, fbin] = exp(1j * (pi / 4) * (choice(array([1, 3, 5, 7]))))
 
         return ref_sig
 
-    def unitary_gen(self, num_data_symb):
+    def unitary_gen(self):
         """
         Generate random unitary matrices for each symbol for each sub-band
-        :param num_data_symb: Total number of data OFDM symbols
         :return: matrix of random unitary matrices
         """
-        unitary_mats = zeros((num_data_symb, self.num_subbands), dtype=object)
-        for symb in range(num_data_symb):
+        unitary_mats = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        for symb in range(self.num_data_symb):
             for sb in range(0, self.num_subbands):
                 Q, R = qr(uniform(0, 1, (self.num_ant, self.num_ant))
                           + 1j * uniform(0, 1, (self.num_ant, self.num_ant)))
@@ -97,11 +111,17 @@ class PLSTransmitter:
         :param freq_bin_data: Frequency domain input data
         :return: Time domain tx stream of data symbols on each antenna
         """
+        min_pow = 1e-30
         time_ofdm_symbols = zeros((self.num_ant, num_data_symb * self.OFDMsymb_len), dtype=complex)
-        for ant in range(self.num_ant):
-            for symb in range(num_data_symb):
-                freq_data_start = symb * self.num_data_bins
-                freq_data_end = freq_data_start + self.num_data_bins
+        for symb in range(num_data_symb):
+            freq_data_start = symb * self.num_data_bins
+            freq_data_end = freq_data_start + self.num_data_bins
+
+            time_symb_start = symb * self.OFDMsymb_len
+            time_symb_end = time_symb_start + self.OFDMsymb_len
+
+            P = 0
+            for ant in range(self.num_ant):
 
                 ofdm_symb = zeros(self.NFFT, dtype=complex)
                 ofdm_symb[self.used_data_bins] = freq_bin_data[ant, freq_data_start:freq_data_end]
@@ -110,10 +130,18 @@ class PLSTransmitter:
                 cyclic_prefix = data_ifft[-self.CP:]
                 data_time = concatenate((cyclic_prefix, data_ifft))  # add CP
 
-                time_symb_start = symb * self.OFDMsymb_len
-                time_symb_end = time_symb_start + self.OFDMsymb_len
-
+                sig_energy = abs(dot(data_time, conj(data_time).T))
+                # power scaling to normalize to 1
+                if sig_energy > min_pow and ant == 0:
+                    scale_factor = sqrt(len(data_time) / sig_energy)
+                else:
+                    scale_factor = 1
+                data_time *= scale_factor
+                P += var(data_time)
                 time_ofdm_symbols[ant, time_symb_start: time_symb_end] = data_time
+
+            for ant in range(self.num_ant):
+                time_ofdm_symbols[ant, time_symb_start: time_symb_end] *= (1 / sqrt(P))
 
         return time_ofdm_symbols
 
@@ -185,5 +213,56 @@ class PLSTransmitter:
         # plt.show()
         return buffer_tx_time
 
+    def map_bits2subband(self, pvt_info_bits):
+        """
+        Based on the number of bits in the codebook index, each sub-band (group of bins=num antennas) in each symbol
+        is assigned bits from the private info bit stream
+        :param pvt_info_bits: Private information to be transmitted
+        :return bits_subband: Bits in each sub-band for each data symbol
+        """
+        bits_subband = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+
+        for symb in range(self.num_data_symb):
+            # Map secret key to subbands
+            for sb in range(self.num_subbands):
+                start = sb * self.bit_codebook
+                fin = start + self.bit_codebook
+
+                bits_subband[symb, sb] = pvt_info_bits[start: fin]
+
+        return bits_subband
+
+    def codebook_select(self, bits_subband):
+        """
+        selects the DFT precoder from the DFT codebook based. Bits are converted to decimal and used as look up index.
+        :param bits_subband: Bits in each sub-band for each data symbol
+        :return dft_precoder: Selected DFT preocder from codebook for each sub-band in each data symbol
+        """
+        dft_precoder = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        for symb in range(self.num_data_symb):
+            for sb in range(self.num_subbands):
+                bits = bits_subband[symb, sb]
+                start = self.bit_codebook - 1
+                bi2dec_wts = 2**(array(range(start, -1, -1))) # convert bits to decimal index in each sub-band
+                codebook_index = sum(bits*bi2dec_wts)
+                dft_precoder[symb, sb] = self.codebook[codebook_index]
+
+        return dft_precoder
+
+    def rotated_preocder(self, tx_node, dft_precoders, rotation_mat):
+        """
+        applies channel-based rotation matrix (LSV from previous SVD) to the DFT precoder
+        :param tx_node: Who is transmitting - Alice or Bob?
+        :param dft_precoders: selected DFT precoders from codebook based on secret bits
+        :param rotation_mat: channel-based rotation matrix (LSV from previous SVD)
+        :return:
+        """
+        precoders = zeros((self.num_data_symb, self.num_subbands), dtype=object)
+        if tx_node == 'Bob':
+            for symb in range(self.num_data_symb):
+                for sb in range(self.num_subbands):
+                    precoders[symb, sb] = dot(conj(rotation_mat[symb, sb]), conj(dft_precoders[symb, sb]).T)
+
+        return precoders
 
 
