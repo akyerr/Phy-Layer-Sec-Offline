@@ -1,5 +1,6 @@
-from numpy import pi, sqrt, exp, floor, zeros
-from numpy.random import normal
+from numpy import pi, sqrt, exp, floor, zeros, array
+from numpy.fft import fft
+from numpy.linalg import norm
 
 class PLSParameters:
 
@@ -15,8 +16,49 @@ class PLSParameters:
         self.num_data_bins = int(0.75*self.NFFT)
         self.subband_size = self.num_ant
 
+        DC_index = int(self.NFFT / 2)
+        neg_data_bins = list(range(DC_index - int(self.num_data_bins / 2), DC_index))
+        pos_data_bins = list(range(DC_index + 1, DC_index + int(self.num_data_bins / 2) + 1))
+        self.used_data_bins = array(neg_data_bins + pos_data_bins)
+
+
         self.num_subbands = int(floor(self.num_data_bins/self.subband_size))
         self.num_PMI = self.num_subbands
+        self.max_impulse = self.NFFT
+        self.channel_time = zeros((self.num_ant, self.num_ant, self.max_impulse), dtype=complex)
+        self.channel_freq = zeros((self.num_ant, self.num_ant, self.NFFT), dtype=complex)
+
+        # Channel matrices after FFT for each used bin
+        self.h_f = zeros((self.num_ant, self.num_ant, self.num_data_bins), dtype=complex)
+
+        self.codebook = self.codebook_gen()
+
+        test_case = 0
+        h = zeros((self.num_ant, self.num_ant), dtype=object)
+
+        # Time domain channels between Alice and Bob
+        if test_case == 0:
+            h[0, 0] = array([0.3977, 0.7954 - 0.3977j, -0.1988, 0.0994, -0.0398])
+            h[0, 1] = array([0.8423j, 0.5391, 0, 0, 0])
+            h[1, 0] = array([0.1631, -0.0815 + 0.9784j, 0.0978, 0, 0])
+            h[1, 1] = array([0.0572j, 0.3659j, 0.5717 - 0.5717j, 0.4574, 0])
+        else:
+            print('# Load from MATLAB channel toolbox - currently not done')
+            exit(0)
+
+        for rx in range(self.num_ant):
+            for tx in range(self.num_ant):
+                if test_case == 0:
+                    self.channel_time[rx, tx, 0:len(h[rx, tx])] = h[rx, tx] / norm(h[rx, tx])
+                else:
+                    print('# Load normalized channels from MATLAB toolbox - currently not done')
+                    exit(0)
+
+                # Take FFT of channels
+                self.channel_freq[rx, tx, :] = fft(self.channel_time[rx, tx, 0:len(h[rx, tx])], self.NFFT)
+                self.h_f[rx, tx, :] = self.channel_freq[rx, tx, self.used_data_bins.astype(int)]
+
+
 
     def codebook_gen(self):
         num_precoders = 2**self.bit_codebook
@@ -33,14 +75,3 @@ class PLSParameters:
 
         return codebook
 
-    def channel_gen(self):
-        HAB = zeros(self.num_subbands, dtype=object)
-        HBA = zeros(self.num_subbands, dtype=object)
-
-        for sb in range(0, self.num_subbands):
-            H = normal(0, 1, (self.num_ant, self.num_ant)) \
-                + 1j*normal(0, 1, (self.num_ant, self.num_ant))
-            HAB[sb] = H
-            HBA[sb] = H.T
-
-        return HAB, HBA

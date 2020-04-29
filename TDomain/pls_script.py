@@ -5,7 +5,12 @@ from numpy.random import randint
 
 from PLSParameters import PLSParameters
 from PLSTransmitter import PLSTransmitter
+from PLSReceiver import PLSReceiver
+
 from SynchSignal import SynchSignal
+
+SNRdB = 40
+SNR_type = 'Analog'
 
 pls_profiles = {
     0: {'bandwidth': 960e3,
@@ -39,12 +44,13 @@ for prof in pls_profiles.values():
     synch = SynchSignal(pls_params, num_synch_symb, symb_pattern)
 
     pls_tx = PLSTransmitter(pls_params, synch, symb_pattern)
-    # pls_rx = PLSReceiver(pls_params, synch, symb_pattern)
+    pls_rx = PLSReceiver(pls_params, synch, symb_pattern, total_num_symb)
 
     # 1. Alice to Bob first transmission
-    pls_tx.transmit_signal_gen('Alice0', num_data_symb)
-    
+    buffer_tx_time = pls_tx.transmit_signal_gen('Alice0', num_data_symb)
+
     # 1. Bob first reception
+    pls_rx.receive_sig_process(buffer_tx_time, SNRdB, SNR_type)
 
 
 

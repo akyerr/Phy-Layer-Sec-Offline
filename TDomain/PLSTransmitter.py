@@ -17,10 +17,7 @@ class PLSTransmitter:
         self.OFDMsymb_len = self.NFFT + self.CP
         self.num_data_bins = pls_params.num_data_bins
 
-        DC_index = int(self.NFFT / 2)
-        neg_data_bins = list(range(DC_index - int(self.num_data_bins / 2), DC_index))
-        pos_data_bins = list(range(DC_index + 1, DC_index + int(self.num_data_bins / 2) + 1))
-        self.used_data_bins = array(neg_data_bins + pos_data_bins)
+        self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
 
         self.num_subbands = pls_params.num_subbands
@@ -49,6 +46,8 @@ class PLSTransmitter:
         time_ofdm_data_symbols = self.ofdm_modulate(num_data_symb, freq_bin_data)
         # print(time_ofdm_data_symbols)
         time_ofdm_symbols = self.synch_data_mux(time_ofdm_data_symbols)
+
+        return time_ofdm_symbols
 
     # QPSK reference signals
     def ref_signal_gen(self, num_data_symb):
