@@ -203,6 +203,12 @@ class PLSReceiver:
         return chan_est_sb
 
     def sv_decomp(self, chan_est_sb):
+        """
+        Perform SVD for the matrix in each sub-band in each data symbol
+        :param chan_est_sb: Estimated channel in each sub-band ine ach data symbol
+        :return lsv, sval, rsv: Left, Right Singular Vectors and Singular Values for the matrix in each sub-band
+        in each data symbol
+        """
         lsv = zeros((self.num_data_symb, self.num_subbands), dtype=object)
         sval = zeros((self.num_data_symb, self.num_subbands), dtype=object)
         rsv = zeros((self.num_data_symb, self.num_subbands), dtype=object)
@@ -222,11 +228,23 @@ class PLSReceiver:
 
     @staticmethod
     def dec2binary(x, num_bits):
+        """
+        Covert decimal number to binary array of ints (1s and 0s)
+        :param x: input decimal number
+        :param num_bits: Number bits required in the binary format
+        :return bits: binary array of ints (1s and 0s)
+        """
         bit_str = [char for char in format(x[0, 0], '0' + str(num_bits) + 'b')]
         bits = array([int(char) for char in bit_str])
         return bits
 
     def PMI_estimate(self, rx_precoder):
+        """
+        Apply minumum distance to estimate the transmitted precoder, its index in the codebook and the binary equivalent
+        of the index
+        :param rx_precoder: observed precoder (RSV of SVD)
+        :return PMI_sb_estimate, bits_sb_estimate: Preocder matrix index and bits for each sub-band for each data symbol
+        """
         PMI_sb_estimate = zeros((self.num_data_symb, self.num_subbands), dtype=int)
         bits_sb_estimate = zeros((self.num_data_symb, self.num_subbands), dtype=object)
         for symb in range(self.num_data_symb):
