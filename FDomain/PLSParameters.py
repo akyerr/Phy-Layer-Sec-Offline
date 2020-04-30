@@ -4,6 +4,11 @@ from numpy.random import normal
 class PLSParameters:
 
     def __init__(self, prof):
+        """
+        Initialization of class
+        :param prof: PLS profile containing basic parameters such as bandwidth, antennas bin spacing, bits in codebook
+        index
+        """
         self.bandwidth = prof['bandwidth']
         self.bin_spacing = prof['bin_spacing']
         self.num_ant = prof['num_ant']
@@ -17,6 +22,10 @@ class PLSParameters:
         self.num_PMI = self.num_subbands
 
     def codebook_gen(self):
+        """
+        Generate DFT codebbok of matrix preocders
+        :return: matrix of matrix preocders
+        """
         num_precoders = 2**self.bit_codebook
         codebook = zeros(num_precoders, dtype=object)
 
@@ -32,6 +41,10 @@ class PLSParameters:
         return codebook
 
     def channel_gen(self):
+        """
+        Generate generic Rayleigh fading channels in the frequency domain
+        :return:
+        """
         HAB = zeros(self.num_subbands, dtype=object)
         HBA = zeros(self.num_subbands, dtype=object)
 

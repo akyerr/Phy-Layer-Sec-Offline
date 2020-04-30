@@ -205,7 +205,7 @@ class PLSReceiver:
     def sv_decomp(self, chan_est_sb):
         """
         Perform SVD for the matrix in each sub-band in each data symbol
-        :param chan_est_sb: Estimated channel in each sub-band ine ach data symbol
+        :param chan_est_sb: Estimated channel in each sub-band in each data symbol
         :return lsv, sval, rsv: Left, Right Singular Vectors and Singular Values for the matrix in each sub-band
         in each data symbol
         """

@@ -5,6 +5,7 @@ from FDomain.Node import Node
 
 max_SNR = 45
 SNR_dB = range(0, max_SNR, 5)
+# SNR_dB = [45, 45]
 max_iter = 200
 
 pls_profiles = {
@@ -58,6 +59,8 @@ for prof in pls_profiles.values():
         ## Calculate KER at Alice
         total_key_len = max_iter*pls_params.num_subbands*pls_params.bit_codebook*2
         KER_A[s] = num_errorsA.sum()/total_key_len
+
+    print(KER_A)
     plt.semilogy(SNR_dB, KER_A, label=f'{pls_params.bit_codebook} bit codebbok')
 plt.legend()
 plt.show()

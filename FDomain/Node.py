@@ -4,6 +4,10 @@ from numpy.random import uniform, normal, randint
 
 class Node:
     def __init__(self, pls_params):
+        """
+        Initialization of class
+        :param pls_params: object from PLSParameters class containing basic parameters
+        """
         self.bandwidth = pls_params.bandwidth
         self.bin_spacing = pls_params.bin_spacing
         self.num_ant = pls_params.num_ant
@@ -19,6 +23,10 @@ class Node:
         self.key_len = self.num_subbands * self.bit_codebook
 
     def unitary_gen(self):
+        """
+        Generate random nitary matrices for each sub-band
+        :return GA: Unitary matrices in each sub-band at Alice
+        """
         GA = zeros(self.num_subbands, dtype=object)
         for sb in range(0, self.num_subbands):
             Q, R = qr(uniform(0, 1, (self.num_ant, self.num_ant))
@@ -29,6 +37,12 @@ class Node:
 
     @staticmethod
     def awgn(in_signal, SNRdB):
+        """
+        Adds AWGN to the input signal. Maintains a given SNR.
+        :param in_signal: input signal to which noise needs to be addded
+        :param SNRdB: Signal to Noise Ratio in dB
+        :return: noisy signal
+        """
         S0 = in_signal*conj(in_signal)
         S = S0.sum() / prod(in_signal.shape)
         SNR = 10 ** (SNRdB / 10)
@@ -39,6 +53,11 @@ class Node:
         return in_signal + awg_noise
 
     def sv_decomp(self, rx_sig):
+        """
+        Perform SVD for the matrix in each sub-band
+        :param rx_sig: Channel matrix at the receiver in each sub-band
+        :return lsv, sval, rsv: Left, Right Singular Vectors and Singular Values for the matrix in each sub-band
+        """
         lsv = zeros(self.num_subbands, dtype=object)
         sval = zeros(self.num_subbands, dtype=object)
         rsv = zeros(self.num_subbands, dtype=object)
@@ -55,6 +74,14 @@ class Node:
         return lsv, sval, rsv
 
     def receive(self, *args):
+        """
+        Contains 3 cases for the 3 steps of the process depending who is the receiver (Alice or Bob)
+        Generates the frequency domain rx signal in each sub-band which is of the form H*G*F
+        H - channel, G - random unitary or LSV from SVD, F - DFT precoder
+        :param args: 0 - who is receiving, 1 - signal to noise ratio in dB, 2 - freq domain channel,
+        3 - random unitary or LSV from SVD, 4 - DFT precoder
+        :return: frequency domain rx signal in each sub-band
+        """
         rx_node = args[0]
         SNRdB = args[1]
         if rx_node == 'Bob' and len(args) == 4:
@@ -88,6 +115,10 @@ class Node:
 
 
     def secret_key_gen(self):
+        """
+        Generate private info bits in each sub-band
+        :return bits_subband: private info bits in each sub-band
+        """
         bits_subband = zeros(self.num_subbands, dtype=object)
 
         secret_key = randint(0, 2, self.key_len)
@@ -102,6 +133,12 @@ class Node:
         return bits_subband
 
     def precoder_select(self, bits_subband, codebook):
+        """
+        selects the DFT precoder from the DFT codebook based. Bits are converted to decimal and used as look up index.
+        :param bits_subband: Bits in each sub-band
+        :param codebook: DFT codebook of matrix precoders
+        :return precoder: Selected DFT preocder from codebook for each sub-band
+        """
         precoder = zeros(self.num_subbands, dtype=object)
 
         for sb in range(self.num_subbands):
@@ -114,12 +151,25 @@ class Node:
         return precoder
     @staticmethod
     def dec2binary(x, num_bits):
+        """
+        Covert decimal number to binary array of ints (1s and 0s)
+        :param x: input decimal number
+        :param num_bits: Number bits required in the binary format
+        :return bits: binary array of ints (1s and 0s)
+        """
         bit_str = [char for char in format(x[0, 0], '0' + str(num_bits) + 'b')]
         bits = array([int(char) for char in bit_str])
         # print(x[0, 0], bits)
         return bits
 
     def PMI_estimate(self, rx_precoder, codebook):
+        """
+        Apply minumum distance to estimate the transmitted precoder, its index in the codebook and the binary equivalent
+        of the index
+        :param rx_precoder: observed precoder (RSV of SVD)
+        :param codebook: DFT codebook of matrix precoders
+        :return PMI_sb_estimate, bits_sb_estimate: Preocder matrix index and bits for each sub-band
+        """
         PMI_sb_estimate = zeros(self.num_subbands, dtype=int)
         bits_sb_estimate = zeros(self.num_subbands, dtype=object)
 
