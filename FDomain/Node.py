@@ -1,4 +1,4 @@
-from numpy import zeros, dot, conj, prod, sqrt, exp, pi, diag, angle, array, argwhere, real
+from numpy import zeros, dot, conj, prod, sqrt, exp, pi, diag, angle, array, argwhere, real, pad
 from numpy.linalg import qr, multi_dot, svd
 from numpy.random import uniform, normal, randint
 
@@ -120,8 +120,10 @@ class Node:
         :return bits_subband: private info bits in each sub-band
         """
         bits_subband = zeros(self.num_subbands, dtype=object)
-
-        secret_key = randint(0, 2, self.key_len)
+        bit_list = self.to_bits("Hello World")
+        bit_difference = int(self.key_len - len(bit_list))
+        bits_for_tx = pad(bit_list, (0, bit_difference), 'constant')
+        secret_key = bits_for_tx
 
         # Map secret key to subbands
         for sb in range(self.num_subbands):
@@ -187,6 +189,13 @@ class Node:
 
         return PMI_sb_estimate, bits_sb_estimate
 
+    def to_bits(self, s):
+        result = []
+        for c in s:
+            bits = bin(ord(c))[2:]
+            bits = '00000000'[len(bits):] + bits
+            result.extend([int(b) for b in bits])
+        return result
 
 
 

@@ -1,15 +1,24 @@
 from numpy import concatenate, bitwise_xor, zeros
 import matplotlib.pyplot as plt
-from FDomain.PLSParameters import PLSParameters
-from FDomain.Node import Node
+from PLSParameters import PLSParameters
+from Node import Node
 
-max_SNR = 45
+max_SNR = 100
 SNR_dB = range(0, max_SNR, 5)
 # SNR_dB = [45, 45]
 max_iter = 200
 
+
+def from_bits(bits):
+    chars = []
+    for b in range(int(len(bits) / 8)):
+        byte = bits[b * 8:(b + 1) * 8]
+        chars.append(chr(int(''.join([str(bit) for bit in byte]), 2)))
+    return ''.join(chars)
+
+
 pls_profiles = {
-               0:{'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 1},
+               0:{'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
                1:{'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
                }
 
@@ -54,6 +63,8 @@ for prof in pls_profiles.values():
             bits_sb_estimateA = N.PMI_estimate(VB1, codebook)[1]
             actual_keyA = concatenate(bits_subbandA)
             observed_keyA = concatenate(bits_sb_estimateA)
+            string_out = from_bits(observed_keyA)
+            print(string_out)
             num_errorsB[i] = bitwise_xor(actual_keyA, observed_keyA).sum()
 
         ## Calculate KER at Alice
