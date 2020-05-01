@@ -14,8 +14,12 @@ class PLSParameters:
         self.num_ant = prof['num_ant']
         self.bit_codebook = prof['bit_codebook']
 
-        self.NFFT = int(floor(self.bandwidth/self.bin_spacing))
-        self.num_used_bins = self.NFFT - 2
+        if self.bandwidth == 20e6:
+            self.NFFT = 2048
+            self.num_used_bins = 1332
+        else:
+            self.NFFT = int(floor(self.bandwidth/self.bin_spacing))
+            self.num_used_bins = self.NFFT - 2
         self.subband_size = self.num_ant
 
         self.num_subbands = int(floor(self.num_used_bins/self.subband_size))

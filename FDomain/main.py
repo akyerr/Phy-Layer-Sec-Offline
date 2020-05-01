@@ -1,24 +1,13 @@
-from numpy import concatenate, bitwise_xor, zeros, packbits
+from numpy import concatenate, bitwise_xor, zeros, packbits, ceil
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
 
-max_SNR = 100
-SNR_dB = [30]
-# SNR_dB = [45, 45]
+SNR_dB = 100
 max_iter = 1
 
-
-def from_bits(bits):
-    chars = []
-    for b in range(int(len(bits) / 8)):
-        byte = bits[b * 8:(b + 1) * 8]
-        chars.append(chr(int(''.join([str(bit) for bit in byte]), 2)))
-    return ''.join(chars)
-
-
 pls_profiles = {
-               0: {'bandwidth': 1000e7, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
+               0: {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4},
                # 1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
                }
 
@@ -26,60 +15,48 @@ for prof in pls_profiles.values():
     pls_params = PLSParameters(prof)
     codebook = pls_params.codebook_gen()
     N = Node(pls_params)  # Wireless network node - could be Alice or Bob
-    KER_A = zeros(len(SNR_dB), dtype=float)
-    for s in range(len(SNR_dB)):
-        num_errorsA = zeros(max_iter, dtype=int)
-        num_errorsB = zeros(max_iter, dtype=int)
-        for i in range(max_iter):
-            HAB, HBA = pls_params.channel_gen()
 
-            ## 1. Alice to Bob
-            GA = N.unitary_gen()
-            rx_sigB0 = N.receive('Bob', SNR_dB[s], HAB, GA)
+    # set up data to be transmitted - 'text' or 'image'
+    bits_to_tx = N.secret_key_gen('image')
 
-            ## 1. At Bob
-            UB0 = N.sv_decomp(rx_sigB0)[0]
-            bits_subbandB = N.secret_key_gen()
-            FB = N.precoder_select(bits_subbandB, codebook)
+    num_symbols = int(ceil(len(bits_to_tx)/(pls_params.num_subbands * pls_params.bit_codebook)))
 
-            ## 2. Bob to Alice
-            rx_sigA = N.receive('Alice', SNR_dB[s], HBA, UB0, FB)
+    bits_recovered = zeros(len(bits_to_tx), dtype=int)
+    for symb in range(num_symbols):
+        bits_start = symb*pls_params.num_subbands*pls_params.bit_codebook
+        bits_end = bits_start + (pls_params.num_subbands*pls_params.bit_codebook)
+        bits_in_symb = bits_to_tx[bits_start: bits_end]
+        bits_subbandB = N.map_key2subband(bits_in_symb)
 
-            ## 2. At Alice
-            UA, _, VA = N.sv_decomp(rx_sigA)
-            bits_sb_estimateB = N.PMI_estimate(VA, codebook)[1]
-            actual_keyB = concatenate(bits_subbandB)
-            observed_keyB = concatenate(bits_sb_estimateB)
-            num_errorsA[i] = bitwise_xor(actual_keyB, observed_keyB).sum()
+        HAB, HBA = pls_params.channel_gen()
 
-            # bits_subbandA = N.secret_key_gen()
-            # FA = N.precoder_select(bits_subbandA, codebook)
-            #
-            # ## 3. Alice to Bob
-            # rx_sigB1 = N.receive('Bob', SNR_dB[s], HAB, UA, FA)
+        ## 1. Alice to Bob
+        GA = N.unitary_gen()
+        rx_sigB0 = N.receive('Bob', SNR_dB, HAB, GA)
 
-            ## 3. At Bob
-            # VB1 = N.sv_decomp(rx_sigB1)[2]
-            # bits_sb_estimateA = N.PMI_estimate(VB1, codebook)[1]
-            # actual_keyA = concatenate(bits_subbandA)
-            # observed_keyA = concatenate(bits_sb_estimateA)
-            # string_out = from_bits(observed_keyA)
+        ## 1. At Bob - private info transmission starts here
+        UB0 = N.sv_decomp(rx_sigB0)[0]
 
-            out_bits = observed_keyB
-            out_bytes = packbits(out_bits)
-            out_name = 'tux_out.png'
-            out_bytes.tofile(out_name)
+        FB = N.precoder_select(bits_subbandB, codebook)
 
-            # num_errorsB[i] = bitwise_xor(actual_keyA, observed_keyA).sum()
+        ## 2. Bob to Alice
+        rx_sigA = N.receive('Alice', SNR_dB, HBA, UB0, FB)
 
-        ## Calculate KER at Alice
-        total_key_len = max_iter*pls_params.num_subbands*pls_params.bit_codebook*2
-        KER_A[s] = num_errorsA.sum()/total_key_len
+        ## 2. At Alice
+        UA, _, VA = N.sv_decomp(rx_sigA)
+        bits_sb_estimateB = N.PMI_estimate(VA, codebook)[1]
+        actual_keyB = concatenate(bits_subbandB)
+        observed_keyB = concatenate(bits_sb_estimateB)
+        num_errorsA = bitwise_xor(actual_keyB, observed_keyB).sum()
+        print(num_errorsA)
 
-    print(KER_A)
-    plt.semilogy(SNR_dB, KER_A, label=f'{pls_params.bit_codebook} bit codebbok')
-plt.legend()
-plt.show()
+        bits_recovered[bits_start: bits_end] = observed_keyB[0: len(bits_in_symb)]
+
+    out_bits = bits_recovered
+    out_bytes = packbits(out_bits)
+    out_name = 'tux_out.png'
+    out_bytes.tofile(out_name)
+
 
 
 

@@ -114,25 +114,37 @@ class Node:
             return rx_sigA
 
 
-    def secret_key_gen(self):
+    def secret_key_gen(self, type_of_data):
         """
-        Generate private info bits in each sub-band
-        :return bits_subband: private info bits in each sub-band
+        Generate private info bits by converting image or text to bits
+        :return bits_for_tx: bits to be transmitted
         """
-        bits_subband = zeros(self.num_subbands, dtype=object)
-        # bit_list = self.to_bits("Hello World")
-        # # Read data and convert to a list of bits
-        # bit_difference = int(self.key_len - len(bit_list))
-        # bits_for_tx = pad(bit_list, (0, bit_difference), 'constant')
-        # secret_key = bits_for_tx
-        in_name = 'tux.png'
-        in_bytes = fromfile(in_name, dtype="uint8")
-        in_bits = unpackbits(in_bytes)
-        data = list(in_bits)
-        bit_difference = int(self.key_len - len(data))
-        bits_for_tx = pad(data, (0, bit_difference), 'constant')
-        secret_key = bits_for_tx
 
+
+        if type_of_data == 'image':
+            in_name = 'tux.png'
+            in_bytes = fromfile(in_name, dtype="uint8")
+            in_bits = unpackbits(in_bytes)
+            data = list(in_bits)
+            bits_for_tx = data
+            # bit_difference = abs(int(self.key_len - len(data)))
+            # bits_for_tx = pad(data, (0, bit_difference), 'constant')
+
+        else:
+            bit_list = self.to_bits("Hello World")
+            bits_for_tx = bit_list
+            # Read data and convert to a list of bits
+            # bit_difference = abs(int(self.key_len - len(bit_list)))
+            # bits_for_tx = pad(bit_list, (0, bit_difference), 'constant')
+
+        return bits_for_tx
+
+    def map_key2subband(self, bits_for_tx):
+        secret_key = bits_for_tx
+        bit_difference = abs(int(self.key_len - len(bits_for_tx)))
+        secret_key = pad(bits_for_tx, (0, bit_difference), 'constant')
+        print(len(bits_for_tx))
+        bits_subband = zeros(self.num_subbands, dtype=object)
         # Map secret key to subbands
         for sb in range(self.num_subbands):
             start = sb * self.bit_codebook
