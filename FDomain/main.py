@@ -1,5 +1,4 @@
 from numpy import concatenate, bitwise_xor, zeros, packbits, ceil, asarray
-import cv2
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
