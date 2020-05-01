@@ -2,12 +2,14 @@ from numpy import concatenate, bitwise_xor, zeros, packbits, ceil
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
+import time
+start = time.process_time()
 
 SNR_dB = 60
 max_iter = 1
 
 pls_profiles = {
-               0: {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
+               0: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4},
                # 1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
                }
 
@@ -18,11 +20,20 @@ for prof in pls_profiles.values():
 
     # set up data to be transmitted - 'text' or 'image'
     bits_to_tx = N.secret_key_gen('image')
-
+    print('Number of bits in the image:', len(bits_to_tx))
     num_symbols = int(ceil(len(bits_to_tx)/(pls_params.num_subbands * pls_params.bit_codebook)))
+    print('-----System Parameters-----')
+    print(f'Bandwidth: {pls_params.bandwidth}')
+    print(f'FFT: {pls_params.NFFT}')
+    print(f'Used freq bins: {pls_params.num_used_bins}')
+    print(f'Sub-band size: {pls_params.subband_size}')
+    # Groups of 2 frequency bins form a sub-band (This is because the precoders are 2x2 matrices and are split across 2 bins
+    print(f'Number of sub-bands: {pls_params.num_subbands}')
+    print(f'Total number of OFDM symbols: {num_symbols}')
 
     bits_recovered = zeros(len(bits_to_tx), dtype=int)
     for symb in range(num_symbols):
+        print(f'symbol {symb} of {num_symbols}')
         bits_start = symb*pls_params.num_subbands*pls_params.bit_codebook
         bits_end = bits_start + (pls_params.num_subbands*pls_params.bit_codebook)
         bits_in_symb = bits_to_tx[bits_start: bits_end]
@@ -48,7 +59,7 @@ for prof in pls_profiles.values():
         actual_keyB = concatenate(bits_subbandB)
         observed_keyB = concatenate(bits_sb_estimateB)
         num_errorsA = bitwise_xor(actual_keyB, observed_keyB).sum()
-        print(num_errorsA)
+        # print(num_errorsA)
 
         bits_recovered[bits_start: bits_end] = observed_keyB[0: len(bits_in_symb)]
 
@@ -57,6 +68,7 @@ for prof in pls_profiles.values():
     out_name = 'tux_out.png'
     out_bytes.tofile(out_name)
 
+print(f'Time to run: {time.process_time() - start} seconds')
 
 
 

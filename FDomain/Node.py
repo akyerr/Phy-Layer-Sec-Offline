@@ -143,7 +143,7 @@ class Node:
         secret_key = bits_for_tx
         bit_difference = abs(int(self.key_len - len(bits_for_tx)))
         secret_key = pad(bits_for_tx, (0, bit_difference), 'constant')
-        print(len(bits_for_tx))
+        # print(len(bits_for_tx))
         bits_subband = zeros(self.num_subbands, dtype=object)
         # Map secret key to subbands
         for sb in range(self.num_subbands):
