@@ -1,12 +1,12 @@
-from numpy import concatenate, bitwise_xor, zeros
+from numpy import concatenate, bitwise_xor, zeros, packbits
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
 
 max_SNR = 100
-SNR_dB = range(0, max_SNR, 5)
+SNR_dB = [30]
 # SNR_dB = [45, 45]
-max_iter = 200
+max_iter = 1
 
 
 def from_bits(bits):
@@ -18,8 +18,8 @@ def from_bits(bits):
 
 
 pls_profiles = {
-               0:{'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
-               1:{'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
+               0: {'bandwidth': 1000e7, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
+               # 1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
                }
 
 for prof in pls_profiles.values():
@@ -52,20 +52,25 @@ for prof in pls_profiles.values():
             observed_keyB = concatenate(bits_sb_estimateB)
             num_errorsA[i] = bitwise_xor(actual_keyB, observed_keyB).sum()
 
-            bits_subbandA = N.secret_key_gen()
-            FA = N.precoder_select(bits_subbandA, codebook)
-
-            ## 3. Alice to Bob
-            rx_sigB1 = N.receive('Bob', SNR_dB[s], HAB, UA, FA)
+            # bits_subbandA = N.secret_key_gen()
+            # FA = N.precoder_select(bits_subbandA, codebook)
+            #
+            # ## 3. Alice to Bob
+            # rx_sigB1 = N.receive('Bob', SNR_dB[s], HAB, UA, FA)
 
             ## 3. At Bob
-            VB1 = N.sv_decomp(rx_sigB1)[2]
-            bits_sb_estimateA = N.PMI_estimate(VB1, codebook)[1]
-            actual_keyA = concatenate(bits_subbandA)
-            observed_keyA = concatenate(bits_sb_estimateA)
-            string_out = from_bits(observed_keyA)
-            print(string_out)
-            num_errorsB[i] = bitwise_xor(actual_keyA, observed_keyA).sum()
+            # VB1 = N.sv_decomp(rx_sigB1)[2]
+            # bits_sb_estimateA = N.PMI_estimate(VB1, codebook)[1]
+            # actual_keyA = concatenate(bits_subbandA)
+            # observed_keyA = concatenate(bits_sb_estimateA)
+            # string_out = from_bits(observed_keyA)
+
+            out_bits = observed_keyB
+            out_bytes = packbits(out_bits)
+            out_name = 'tux_out.png'
+            out_bytes.tofile(out_name)
+
+            # num_errorsB[i] = bitwise_xor(actual_keyA, observed_keyA).sum()
 
         ## Calculate KER at Alice
         total_key_len = max_iter*pls_params.num_subbands*pls_params.bit_codebook*2

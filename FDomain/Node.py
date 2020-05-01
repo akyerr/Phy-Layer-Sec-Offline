@@ -1,4 +1,4 @@
-from numpy import zeros, dot, conj, prod, sqrt, exp, pi, diag, angle, array, argwhere, real, pad
+from numpy import zeros, dot, conj, prod, sqrt, exp, pi, diag, angle, array, argwhere, real, pad, fromfile, unpackbits
 from numpy.linalg import qr, multi_dot, svd
 from numpy.random import uniform, normal, randint
 
@@ -120,9 +120,17 @@ class Node:
         :return bits_subband: private info bits in each sub-band
         """
         bits_subband = zeros(self.num_subbands, dtype=object)
-        bit_list = self.to_bits("Hello World")
-        bit_difference = int(self.key_len - len(bit_list))
-        bits_for_tx = pad(bit_list, (0, bit_difference), 'constant')
+        # bit_list = self.to_bits("Hello World")
+        # # Read data and convert to a list of bits
+        # bit_difference = int(self.key_len - len(bit_list))
+        # bits_for_tx = pad(bit_list, (0, bit_difference), 'constant')
+        # secret_key = bits_for_tx
+        in_name = 'tux.png'
+        in_bytes = fromfile(in_name, dtype="uint8")
+        in_bits = unpackbits(in_bytes)
+        data = list(in_bits)
+        bit_difference = int(self.key_len - len(data))
+        bits_for_tx = pad(data, (0, bit_difference), 'constant')
         secret_key = bits_for_tx
 
         # Map secret key to subbands
