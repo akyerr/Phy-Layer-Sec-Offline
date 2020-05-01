@@ -1,20 +1,19 @@
-from numpy import concatenate, bitwise_xor, zeros, packbits, ceil
+from numpy import concatenate, bitwise_xor, zeros, packbits, ceil, asarray
+import cv2
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
 import time
 start = time.process_time()
 
-SNR_dB = 60
+SNR_dB = [6, 60]
 max_iter = 1
 
-pls_profiles = {
-               0: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4},
-               # 1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
-               }
+pls_profiles = {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4}
 
-for prof in pls_profiles.values():
-    pls_params = PLSParameters(prof)
+
+for s in range(len(SNR_dB)):
+    pls_params = PLSParameters(pls_profiles)
     codebook = pls_params.codebook_gen()
     N = Node(pls_params)  # Wireless network node - could be Alice or Bob
 
@@ -43,7 +42,7 @@ for prof in pls_profiles.values():
 
         ## 1. Alice to Bob
         GA = N.unitary_gen()
-        rx_sigB0 = N.receive('Bob', SNR_dB, HAB, GA)
+        rx_sigB0 = N.receive('Bob', SNR_dB[s], HAB, GA)
 
         ## 1. At Bob - private info transmission starts here
         UB0 = N.sv_decomp(rx_sigB0)[0]
@@ -51,7 +50,7 @@ for prof in pls_profiles.values():
         FB = N.precoder_select(bits_subbandB, codebook)
 
         ## 2. Bob to Alice
-        rx_sigA = N.receive('Alice', SNR_dB, HBA, UB0, FB)
+        rx_sigA = N.receive('Alice', SNR_dB[s], HBA, UB0, FB)
 
         ## 2. At Alice
         UA, _, VA = N.sv_decomp(rx_sigA)
@@ -65,8 +64,14 @@ for prof in pls_profiles.values():
 
     out_bits = bits_recovered
     out_bytes = packbits(out_bits)
-    out_name = 'tux_out.png'
+    out_name = f'tux_out_{SNR_dB[s]}dB.png'
     out_bytes.tofile(out_name)
+
+    plt.hist(out_bytes)
+    plt.title(f'Histogram of Rx image byte array, SNR: {SNR_dB[s]} dB')
+    plt.xlabel('Bytes')
+    plt.ylabel('Freq. of occurrence')
+    plt.show()
 
 print(f'Time to run: {time.process_time() - start} seconds')
 
