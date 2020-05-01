@@ -19,7 +19,12 @@ class PLSParameters:
         self.NFFT = int(floor(self.bandwidth/self.bin_spacing))
         self.CP = int(0.25*self.NFFT)
         self.num_data_bins = int(0.75*self.NFFT)
+        # self.num_data_bins = 1
         self.subband_size = self.num_ant
+
+
+        if self.num_data_bins == 1:
+            self.used_data_bins = array([10])
 
         DC_index = int(self.NFFT / 2)
         neg_data_bins = list(range(DC_index - int(self.num_data_bins / 2), DC_index))
