@@ -3,13 +3,14 @@ import cv2
 import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
+from plot_diagnostics import plots
 import time
 start = time.process_time()
 
-SNR_dB = [6, 60]
+SNR_dB = [60, 6]
 max_iter = 1
 
-pls_profiles = {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4}
+pls_profiles = {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4}
 
 
 for s in range(len(SNR_dB)):
@@ -61,6 +62,10 @@ for s in range(len(SNR_dB)):
         # print(num_errorsA)
 
         bits_recovered[bits_start: bits_end] = observed_keyB[0: len(bits_in_symb)]
+
+        if SNR_dB[s] == 60 and symb == 0:
+            plots(pls_params, GA, rx_sigB0, rx_sigA)
+            dbg = 1
 
     out_bits = bits_recovered
     out_bytes = packbits(out_bits)
