@@ -3,11 +3,11 @@ import matplotlib.pyplot as plt
 from PLSParameters import PLSParameters
 from Node import Node
 
-SNR_dB = 100
+SNR_dB = 60
 max_iter = 1
 
 pls_profiles = {
-               0: {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 4},
+               0: {'bandwidth': 20e6, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 3},
                # 1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
                }
 
