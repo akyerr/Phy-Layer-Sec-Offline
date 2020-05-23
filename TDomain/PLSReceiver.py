@@ -111,7 +111,7 @@ class PLSReceiver:
         if self.SNR_type == 'Digital':
             noise_var = (1 / bits_per_symb) * samp_per_symb * sig_pow * 10 ** (-self.SNRdB / 10)
         elif self.SNR_type == 'Analog':
-            noise_var = sig_pow * 10 ** (-self.SNRdB / 10)
+            noise_var = sig_pow * (10 ** (-self.SNRdB / 10))
         else:
             noise_var = None
             exit(0)

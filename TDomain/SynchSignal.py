@@ -1,4 +1,4 @@
-from numpy import sum, zeros, array, exp, pi, concatenate
+from numpy import sum, zeros, array, exp, pi, concatenate, conj, sqrt
 from numpy.fft import ifft
 import matplotlib.pyplot as plt
 
@@ -39,7 +39,10 @@ class SynchSignal:
             synch_cp = synch_ifft[-self.CP:] # size CP
             synch_time = concatenate((synch_cp, synch_ifft))  # size NFFT + CP
 
-            self.synch_signals[symb, :] = synch_time
+            power_est = sum(synch_time*conj(synch_time))/len(synch_time)
+            norm_synch = synch_time/sqrt(power_est)
+
+            self.synch_signals[symb, :] = norm_synch
 
         self.synch_mask = zeros((self.num_ant, self.OFDMsymb_len*len(self.symb_pattern)), dtype=complex)
 
