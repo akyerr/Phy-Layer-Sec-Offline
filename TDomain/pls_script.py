@@ -23,7 +23,7 @@ pls_profiles = {
     #    'bit_codebook': 2,
     #    'synch_data_pattern': [4, 2]},
 }
-pvt_info_len = 144  # bits
+pvt_info_len = 4  # bits
 for prof in pls_profiles.values():
     pls_params = PLSParameters(prof)
     # print(pls_params.num_subbands)
@@ -63,7 +63,7 @@ for prof in pls_profiles.values():
 
     B_key_obs_at_A = concatenate(reshape(obs_info_bits_A, prod(obs_info_bits_A.shape)))
     num_bit_err = bitwise_xor(B_key_obs_at_A, pvt_info_bits_B).sum()
-    print(num_bit_err)
+    print(f'Number of bit errors Bob to Alice: {num_bit_err}')
 
 
 

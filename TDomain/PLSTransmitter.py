@@ -1,6 +1,6 @@
-from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var
+from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var, identity
 from numpy.fft import ifft
-from numpy.random import choice, uniform
+from numpy.random import choice, uniform, seed
 from numpy.linalg import qr
 import matplotlib.pyplot as plt
 
@@ -28,7 +28,7 @@ class PLSTransmitter:
 
         self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
-
+        self.num_bits_symb = int((self.num_data_bins/self.subband_size)*self.bit_codebook)
         self.num_subbands = pls_params.num_subbands
         self.num_PMI = self.num_subbands
 
@@ -80,6 +80,7 @@ class PLSTransmitter:
         :return: Matrix of QPSK reference signals
         Same ref signal on both antennas in a bin. (Can be changed later)
         """
+        seed(250)
         ref_sig = zeros((self.num_data_symb, self.num_data_bins), dtype=complex)
         for symb in range(self.num_data_symb):
             for fbin in range(self.num_data_bins):
@@ -98,7 +99,8 @@ class PLSTransmitter:
                 Q, R = qr(uniform(0, 1, (self.num_ant, self.num_ant))
                           + 1j * uniform(0, 1, (self.num_ant, self.num_ant)))
 
-                unitary_mats[symb, sb] = dot(Q, diag(diag(R) / abs(diag(R))))
+                unitary_mats[symb, sb] = identity(self.num_ant)
+                # unitary_mats[symb, sb] = dot(Q, diag(diag(R) / abs(diag(R))))
         return unitary_mats
 
     def ofdm_modulate(self, num_data_symb, freq_bin_data):
@@ -123,7 +125,8 @@ class PLSTransmitter:
 
                 ofdm_symb = zeros(self.NFFT, dtype=complex)
                 ofdm_symb[self.used_data_bins] = freq_bin_data[ant, freq_data_start:freq_data_end]
-
+                # plt.stem(array(range(-int(self.NFFT/2), int(self.NFFT/2))), abs(ofdm_symb))
+                # plt.show()
                 data_ifft = ifft(ofdm_symb, self.NFFT)
                 cyclic_prefix = data_ifft[-self.CP:]
                 data_time = concatenate((cyclic_prefix, data_ifft))  # add CP
@@ -173,7 +176,7 @@ class PLSTransmitter:
                 fbin_val[:, fbin] *= ref_sig[symb, fbin]
 
             freq_bin_data[:, symb_start: symb_end] = fbin_val
-
+            dbg = 1
         return freq_bin_data
 
     def synch_data_mux(self, time_ofdm_data_symbols):
@@ -185,7 +188,9 @@ class PLSTransmitter:
         """
 
         buffer_tx_time = self.synch.synch_mask # Add data into this
-
+        # plt.plot(buffer_tx_time[0, :].real)
+        # plt.plot(buffer_tx_time[0, :].imag)
+        # plt.show()
         total_symb_count = 0
         synch_symb_count = 0
         data_symb_count = 0
@@ -205,9 +210,9 @@ class PLSTransmitter:
 
             total_symb_count += 1
 
-        plt.plot(buffer_tx_time[0, :].real)
-        plt.plot(buffer_tx_time[0, :].imag)
-        plt.show()
+        # plt.plot(buffer_tx_time[0, :].real)
+        # plt.plot(buffer_tx_time[0, :].imag)
+        # plt.show()
         return buffer_tx_time
 
     def map_bits2subband(self, pvt_info_bits):
@@ -220,12 +225,15 @@ class PLSTransmitter:
         bits_subband = zeros((self.num_data_symb, self.num_subbands), dtype=object)
 
         for symb in range(self.num_data_symb):
+            symb_bits_start = symb * self.num_bits_symb
+            symb_bits_end = symb_bits_start + self.num_bits_symb
+            symb_bits = pvt_info_bits[symb_bits_start: symb_bits_end]
             # Map secret key to subbands
             for sb in range(self.num_subbands):
-                start = sb * self.bit_codebook
-                fin = start + self.bit_codebook
+                sb_bits_start = sb * self.bit_codebook
+                sb_bits_fin = sb_bits_start + self.bit_codebook
 
-                bits_subband[symb, sb] = pvt_info_bits[start: fin]
+                bits_subband[symb, sb] = symb_bits[sb_bits_start: sb_bits_fin]
 
         return bits_subband
 

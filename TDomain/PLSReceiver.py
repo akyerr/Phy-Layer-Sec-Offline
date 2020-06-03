@@ -30,6 +30,7 @@ class PLSReceiver:
 
         self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
+        self.num_bits_symb = int((self.num_data_bins / self.subband_size)*self.bit_codebook)
 
         self.num_subbands = pls_params.num_subbands
         self.num_PMI = self.num_subbands
@@ -92,7 +93,7 @@ class PLSReceiver:
                 # print(self.channel_time[rx, tx, :].shape)
 
             buffer_rx_time[rx, :] = rx_sig_ant
-        buffer_rx_time = self.awgn(buffer_rx_time)
+        # buffer_rx_time = self.awgn(buffer_rx_time)
         return buffer_rx_time
 
     def awgn(self, in_signal):
@@ -176,8 +177,9 @@ class PLSReceiver:
                 time_data = buffer_rx_data[ant, symb_start: symb_end]
                 data_fft = fft(time_data, self.NFFT)
                 data_in_used_bins = data_fft[self.used_data_bins]
-
-                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
+                # est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
+                est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(1 + (1 / SNRlin))
+                chan_est_bins[ant, used_symb_start: used_symb_end] = est_channel
         # print(chan_est.shape)
         return chan_est_bins
 
