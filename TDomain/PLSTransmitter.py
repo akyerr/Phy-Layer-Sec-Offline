@@ -1,4 +1,4 @@
-from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var
+from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var, copy
 from numpy.fft import ifft
 from numpy.random import choice, uniform
 from numpy.linalg import qr
@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 
 
 class PLSTransmitter:
-    def __init__(self, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb):
+    def __init__(self, plot_diagnostics, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb):
         """
         Initialization of class
+        :param plot_diagnostics: boolean allowing for plots to be generated
         :param pls_params: object from PLSParameters class containing basic parameters
         :param synch: object of SynchSignal class containing synch parameters and synch mask
         :param symb_pattern: List of 0s and 1s representing pattern of symbols - synch is represented by 0, data by 1
@@ -16,6 +17,7 @@ class PLSTransmitter:
         :param num_data_symb: Number of data OFDM symbols
         :param num_synch_symb: Number of synch OFDM symbols
         """
+        self.plots = plot_diagnostics
         self.bandwidth = pls_params.bandwidth
         self.bin_spacing = pls_params.bin_spacing
         self.num_ant = pls_params.num_ant
@@ -50,7 +52,6 @@ class PLSTransmitter:
 
         tx_node = args[0]
         num_data_symb = args[1]
-
 
         if tx_node == 'Alice0':
             precoders = self.unitary_gen()
@@ -184,7 +185,7 @@ class PLSTransmitter:
         :return: time domain tx symbol stream per antenna (contains synch and data symbols) (matrix)
         """
 
-        buffer_tx_time = self.synch.synch_mask # Add data into this
+        buffer_tx_time = copy(self.synch.synch_mask)  # Add data into this
 
         total_symb_count = 0
         synch_symb_count = 0
@@ -215,10 +216,11 @@ class PLSTransmitter:
 
             total_symb_count += 1
         # print('synch ', synch_symb_count, 'data ', data_symb_count, 'total ', total_symb_count)
-        print(buffer_tx_time.shape)
-        plt.plot(buffer_tx_time[0, :].real)
-        plt.plot(buffer_tx_time[0, :].imag)
-        plt.show()
+        # print(buffer_tx_time.shape)
+        if self.plots is True:
+            plt.plot(buffer_tx_time[0, :].real)
+            plt.plot(buffer_tx_time[0, :].imag)
+            plt.show()
         return buffer_tx_time
 
     def map_bits2subband(self, pvt_info_bits):

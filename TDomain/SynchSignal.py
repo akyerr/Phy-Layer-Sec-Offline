@@ -1,4 +1,4 @@
-from numpy import sum, zeros, array, exp, pi, concatenate
+from numpy import sum, zeros, array, exp, pi, concatenate, copy
 from numpy.fft import ifft
 import matplotlib.pyplot as plt
 
@@ -57,9 +57,10 @@ class SynchSignal:
 
             total_symb_count += 1
         # print(self.synch_start)
-        # plt.plot(self.synch_mask[0, :].real)
-        # plt.plot(self.synch_mask[0, :].imag)
-        # plt.show()
+        plt.plot(self.synch_mask[0, :].real)
+        plt.plot(self.synch_mask[0, :].imag)
+        plt.show()
+        self.mask = copy(self.synch_mask[0, :480])
 
     def zadoff_chu_gen(self, prime):
         x0 = array(range(0, self.num_synch_bins))

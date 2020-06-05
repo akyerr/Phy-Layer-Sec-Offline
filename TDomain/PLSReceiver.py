@@ -1,14 +1,17 @@
-from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere
-from numpy.random import normal
+from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere, absolute, ceil, sum, argmax, roll, floor, sum, insert, copy, append
+from numpy.random import normal, randint
 from numpy.fft import fft
 from numpy.linalg import svd
+import scipy.stats.mstats as scipy
 import matplotlib.pyplot as plt
 
 
+
 class PLSReceiver:
-    def __init__(self, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb,SNRdB, SNR_type):
+    def __init__(self, plot_diagnostics, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb,SNRdB, SNR_type):
         """
         Initialization of class
+        :param plot_diagnostics: boolean allowing for plots to be generated
         :param pls_params: object from PLSParameters class containing basic parameters
         :param synch: object of SynchSignal class containing synch parameters and synch mask
         :param symb_pattern: List of 0s and 1s representing pattern of symbols - synch is represented by 0, data by 1
@@ -18,6 +21,8 @@ class PLSReceiver:
         :param SNRdB: Signal to Noise Ratio in dB
         :param SNR_type: Analog or Digital SNR
         """
+        self.plots = plot_diagnostics
+
         self.bandwidth = pls_params.bandwidth
         self.bin_spacing = pls_params.bin_spacing
         self.num_ant = pls_params.num_ant
@@ -40,14 +45,24 @@ class PLSReceiver:
         self.channel_time = pls_params.channel_time
         self.max_impulse = pls_params.max_impulse
         self.total_num_symb = total_num_symb
-        self.total_symb_len = self.total_num_symb*self.OFDMsymb_len
 
+        print("Total Number of Symbols: ", self.total_num_symb)
+        self.total_symb_len = self.total_num_symb*self.OFDMsymb_len
+        print("Total Symbol Length: ", self.total_symb_len)
         self.num_data_symb = num_data_symb
+        print("Number of Data Symbols: ", self.num_data_symb)
         self.num_synch_symb = num_synch_symb
+        print("Number of Synch Symbols: ", self.num_synch_symb)
+        self.synch_data_pattern = [int(self.num_synch_symb / self.num_data_symb), int(self.total_num_symb / self.num_data_symb - self.num_synch_symb / self.num_data_symb)]
+        print("Synch Data Pattern: ", self.synch_data_pattern)
+        self.synch_data_pattern_sum = self.synch_data_pattern[0] + self.synch_data_pattern[1]
         self.SNRdB = SNRdB
         self.SNR_type = SNR_type
 
         self.codebook = pls_params.codebook
+        self.mask = self.synch.mask
+
+        self.power_requirements = 0
 
     def receive_sig_process(self, buffer_tx_time, ref_sig):
         """
@@ -59,8 +74,25 @@ class PLSReceiver:
         """
         buffer_rx_time = self.rx_signal_gen(buffer_tx_time)
 
+        # Shuffle the signal for simulation.
+        roll_amt = randint(-10000, 10000)
+        print("Rolling Signal by ", roll_amt, " amount!")
+        buffer_rx_time = roll(buffer_rx_time, roll_amt)
+
+        if self.plots is True:
+            plt.title("Phase Adjusted RX Signal")
+            plt.plot(buffer_rx_time[1, :480].real)
+            plt.plot(buffer_rx_time[1, :480].imag)
+            plt.show()
+
         # synchronization - return just data symbols with CP removed
         buffer_rx_data = self.synchronize(buffer_rx_time)
+
+        if self.plots is True:
+            plt.title("RX Buffer: DATA ONLY")
+            plt.plot(buffer_rx_data[1, 0:128].real)
+            plt.plot(buffer_rx_data[1, 0:128].imag)
+            plt.show()
 
         # Channel estimation in each of the used bins
         chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig)
@@ -73,6 +105,7 @@ class PLSReceiver:
 
         # rsv is supposed to be the received dft precoder
         bits_sb_estimate = self.PMI_estimate(rsv)[1]
+
         return lsv, rsv, bits_sb_estimate
 
     def rx_signal_gen(self, buffer_tx_time):
@@ -81,7 +114,7 @@ class PLSReceiver:
         :param buffer_tx_time: Time domain tx signal streams on each antenna (matrix)
         :return buffer_rx_time: Time domain rx signal at each receive antenna
         """
-        buffer_rx_time = zeros((self.num_ant,self.total_symb_len + self.max_impulse - 1), dtype=complex)
+        buffer_rx_time = zeros((self.num_ant, self.total_symb_len), dtype=complex)
         for rx in range(self.num_ant):
             rx_sig_ant = 0  # sum rx signal at each antenna
             for tx in range(self.num_ant):
@@ -91,8 +124,9 @@ class PLSReceiver:
                 # print(self.buffer_data_tx_time[tx, :].shape)
                 # print(self.channel_time[rx, tx, :].shape)
 
-            buffer_rx_time[rx, :] = rx_sig_ant
+            buffer_rx_time[rx, :] = rx_sig_ant[:-int(self.max_impulse - 1)]
         buffer_rx_time = self.awgn(buffer_rx_time)
+
         return buffer_rx_time
 
     def awgn(self, in_signal):
@@ -123,39 +157,270 @@ class PLSReceiver:
             in_signal[rx, :] += awg_noise
 
         noisy_signal = in_signal
+
         return noisy_signal
 
     def synchronize(self, buffer_rx_time):
         """
         Time domain synchronization - correlation with Zadoff Chu Synch mask
         :param buffer_rx_time: Time domain rx signal at each receive antenna
-        :return buffer_rx_data: Time domain rx signal at each receive antenna with CP removed
+        :return buffer_rx_data_wo_cp: Time domain rx signal at each receive antenna with CP removed
         """
-        buffer_rx_data = zeros((self.num_ant, self.num_data_symb*self.NFFT), dtype=complex)
 
-        total_symb_count = 0
-        synch_symb_count = 0
-        data_symb_count = 0
-        for symb in self.symb_pattern.tolist():
-            symb_start = total_symb_count * self.OFDMsymb_len
-            symb_end = symb_start + self.OFDMsymb_len
-            # print(symb_start, symb_end)
-            if int(symb) == 0:
-                synch_symb_count += 1
+        symb_pattern_buffer = copy(self.symb_pattern)
+        periodicity = len(self.mask)
+        total_complete_data_symbs = 0
+
+        buffer_rx_data = zeros((self.num_ant, self.num_data_symb * self.NFFT), dtype=complex)
+
+        if self.plots is True:
+            plt.title("Signal Mask for Correlation")
+            plt.plot(self.mask.real)
+            plt.plot(self.mask.imag)
+            plt.show()
+
+        window_size = (len(self.mask))
+        window_slide_dist = 1
+        num_windows = int(
+            ceil(((len(buffer_rx_time[1, :periodicity]) - window_size) / window_slide_dist) + 1))
+
+        correlation_value_buffer = zeros((self.num_ant, num_windows, 1))
+        correlation_index_buffer = zeros((self.num_ant, num_windows, 1))
+
+        index_offset, corr_values = self.correlate(buffer_rx_time[1, 0:periodicity])
+        correlation_value_buffer[1, :, 0] = corr_values.max()
+        correlation_index_buffer[1, :, 0] = index_offset.argmax()
+
+        if self.plots is True:
+            plt.title("Zadoff-Chu Correlation")
+            plt.plot(corr_values)
+            plt.show()
+
+        correct_index = int(scipy.gmean(correlation_index_buffer[1, :, :]))
+        print("The correct index offset is: ", correct_index)
+
+        power_estimate = self.power_estimate(buffer_rx_time, correct_index)
+        print("Estimated Power of Signal Before the start of the Data: ", power_estimate)
+
+        print("Is there data before the start?")
+
+        if correct_index > 0:
+            if power_estimate > self.power_requirements:
+                num_symbs_before_synch = (correct_index - 1) / (self.NFFT + self.CP)
+                print("Yes! There are ", correct_index - 1, " time-series elements before the start of the Synch Symbol.")
+                print("Number of symbols before Starting synch symbol: ", num_symbs_before_synch)
+
+                num_data_before_synch = 0
+                num_synch_before_synch = 0
+
+                num_symbs_left = num_symbs_before_synch
+
+                num_complete_data = 0
+                num_complete_synch = 0
+                num_partial_data = 0
+                num_partial_synch = 0
+
+                # Calculating the true start of the Data, including what portions are wasted symbols.
+                for symb in range(0, int(ceil(num_symbs_before_synch)), int(self.synch_data_pattern_sum)):
+                    for symb_type in [1, 0]:
+
+                        if num_symbs_left - self.synch_data_pattern[symb_type] >= 0:
+                            num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
+                            if symb_type == 0:
+                                num_synch_before_synch += self.synch_data_pattern[symb_type]
+                                print("Synch Symbol(s) Detected!")
+                            if symb_type == 1:
+                                print("Data Symbol(s) Detected!")
+                                num_data_before_synch += self.synch_data_pattern[symb_type]
+
+                        elif num_symbs_left - self.synch_data_pattern[symb_type] < 0 and num_symbs_left > 0:
+
+                            previos_num_symbs_left = num_symbs_left
+                            num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
+                            if symb_type == 0:
+
+                                if 1 < previos_num_symbs_left < 2:
+                                    num_synch_before_synch += 1
+
+                                else:
+                                    print("Error!")
+                                print("The rest of the data stream has ", num_symbs_left, " of a synch symbol!")
+                                num_complete_synch = num_synch_before_synch
+                                num_partial_synch = num_symbs_left - floor(num_symbs_left)
+                                num_complete_data = num_data_before_synch
+
+                            elif symb_type == 1:
+                                print("The rest of the data stream has ", num_symbs_left, " of a data symbol!")
+                                num_complete_data = num_data_before_synch
+                                num_partial_data = num_symbs_left - floor(num_symbs_left)
+                                num_complete_synch = num_synch_before_synch
+
+                if num_symbs_before_synch < 1:
+                    num_partial_data = num_symbs_before_synch
+                    total_complete_data_symbs = self.num_data_symb - 1
+                    print("The number of partial data symbols before the correlation is, ", num_partial_data)
+                    print("The number of complete data symbols before the correlation is, ", num_complete_data)
+                    print("========================================================================================")
+                    print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
+                    print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
+
+                else:
+                    total_complete_data_symbs = self.num_data_symb
+                    print("The number of partial data symbols before the correlation is, ", num_partial_data)
+                    print("The number of complete data symbols before the correlation is, ", num_complete_data)
+                    print("========================================================================================")
+                    print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
+                    print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
             else:
-                # print(symb, symb_start, symb_end)
-                data_start = data_symb_count * self.NFFT
-                data_end = data_start + self.NFFT
-                # print(data_start, data_end)
-                # print(time_ofdm_data_symbols[:, data_start: data_end])
-                data_with_CP = buffer_rx_time[:,  symb_start: symb_end]
-                data_without_CP = data_with_CP[:, self.CP: ]
-                buffer_rx_data[:, data_start: data_end] = data_without_CP
-                data_symb_count += 1
+                print("No!")
+                num_complete_data = 0
+                num_partial_data = 0
+                num_complete_synch = 0
+                num_partial_synch = 0
+                print("Signal Prior to Correct Index does not meet power requirements!")
+        else:
+            print("No!")
+            num_complete_data = 0
+            num_partial_data = 0
+            num_complete_synch = 0
+            num_partial_synch = 0
 
-            total_symb_count += 1
-        # print(buffer_rx_data.shape)
-        return buffer_rx_data
+        if num_partial_synch > 0:
+            print("There are stray SYNCH Symbols!")
+            modulo_patch = (num_complete_synch + num_partial_synch) % self.synch_data_pattern[0]
+            corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP)))
+            if num_complete_synch >= 1:
+                symb_pattern_buffer = symb_pattern_buffer[int(ceil(num_partial_synch) + num_complete_synch):]
+            else:
+                symb_pattern_buffer = symb_pattern_buffer[int(self.synch_data_pattern[0]):]
+            # print("Synch-Data Pattern without wasted symbols:", symb_pattern_buffer)
+
+        elif num_partial_data > 0:
+            print("There is a stray DATA symbol!")
+            modulo_patch = (num_complete_data + num_partial_data) % self.synch_data_pattern[1]
+            corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP) + self.synch_data_pattern[0] * (self.NFFT + self.CP)))
+            symb_pattern_buffer = roll(symb_pattern_buffer, -int(self.synch_data_pattern[0]))
+            symb_pattern_buffer = symb_pattern_buffer[:-int(sum(self.synch_data_pattern))]
+            # print("Synch-Data Pattern without wasted symbols: ", symb_pattern_buffer)
+
+        else:
+            corrected_index = correct_index
+
+        buffer_rx_data = self.strip_synchs(buffer_rx_time, corrected_index, total_complete_data_symbs, symb_pattern_buffer)
+
+        # Recovering wasted symbols by stitching the end of the buffer with the start of the buffer.
+        if power_estimate > self.power_requirements and num_partial_data > 0:
+            recovered_data = self.recover_lost_data(buffer_rx_time, num_partial_data)
+            buffer_rx_data = append(recovered_data, buffer_rx_data, axis=1)
+
+        # Remove CP
+        buffer_rx_data_wo_cp = self.remove_cp(buffer_rx_data)
+
+        return buffer_rx_data_wo_cp
+
+    def remove_cp(self, buffer_rx_data):
+        buffer_rx_data_wo_cp = zeros((self.num_ant, self.num_data_symb * self.NFFT), dtype=complex)
+        num_of_cuts = int(len(buffer_rx_data[0, :]) / (self.NFFT + self.CP))
+        for index in range(num_of_cuts):
+
+            start = index * (self.NFFT + self.CP) + self.CP
+            end = (index + 1) * (self.NFFT + self.CP)
+
+            buffer_start = index * self.NFFT
+            buffer_end = (index + 1) * self.NFFT
+
+            buffer_rx_data_wo_cp[:, buffer_start: buffer_end] = buffer_rx_data[:, start: end]
+
+        return buffer_rx_data_wo_cp
+
+    def strip_synchs(self, buffer_rx_time, corrected_index, num_complete_data, symb_pattern):
+        """
+        Removes synchronization elements from the data stream.
+        :param buffer_rx_time: Time domain rx signal at each antenna
+        :param corrected_index: The correct starting index, an index for removing any partial symbols
+        :param num_complete_data: number of data symbols found before the synchronization point in the data stream
+        :param symb_pattern: variable containing the full pattern of the input data, 1 for a data symbol, 0 for a synchronization symbol
+        :return: a buffer containing only the data elements
+        """
+        data_only_buffer = zeros((self.num_ant, num_complete_data * (self.NFFT + self.CP)), dtype=complex)
+
+        count = 0
+        for index in range(symb_pattern.shape[0]):
+            start = int(index * (self.NFFT + self.CP) + corrected_index)
+            end = int((index + 1) * (self.NFFT + self.CP) + corrected_index)
+            if symb_pattern[index] == 0:
+                pass
+            elif symb_pattern[index] == 1:
+                buffer_start = count * (self.NFFT + self.CP)
+                buffer_end = (count + 1) * (self.NFFT + self.CP)
+                data_only_buffer[:, buffer_start:buffer_end] = buffer_rx_time[:, start:end]
+                count += 1
+            else:
+                print("Error in Strip Synchs!")
+
+        return data_only_buffer
+
+    def power_estimate(self, input_data, correct_index):
+        """
+        Estimates the power of a given signal.
+        :param input_data: numpy array containing data of interest across N antennas
+        :param correct_index: synchronization point, which is used to determine the end of the buffer that matters.
+        :return: signal power of the particular data stream
+        """
+        signal_power = sum((input_data[1, 0:correct_index] * conj(
+            input_data[1, 0:correct_index]))) / len(input_data[1, :])
+
+        return signal_power
+
+    def recover_lost_data(self, buffer_rx_time, num_partial_data):
+        """
+        Partial data due to buffer constraints is dealt with through this function.
+        :param buffer_rx_time: Time domain rx signal at each antenna
+        :param num_partial_data: Num of symbols cut-off from the buffer due to buffer constraints.
+        :return: recovered data: the reconstructed data consisitng of the beginning and end of the buffer (will change in GNU Radio)
+        """
+        partial_data_before = buffer_rx_time[:, 0:int(num_partial_data * (self.NFFT + self.CP))]
+        partial_data_after = buffer_rx_time[:, -int((self.NFFT + self.CP) - num_partial_data * (self.NFFT + self.CP)):]
+        recovered_data = append(partial_data_after, partial_data_before, axis=1)
+
+        return recovered_data
+
+    def correlate(self, rx_signal):
+        """
+        Begins the correlation process and handles values from resulting functions.
+        :param rx_signal: Time domain rx signal at each antenna
+        :return: index_offset: correlation values for index offset.
+        :return: corr_values: correlation values that show the magnitude of the correlation for a given time-step
+        """
+        in0 = rx_signal[:]
+        corr = self.autocorr(in0, self.mask)
+        index_offset = corr
+        corr_values = absolute(corr)
+
+        return index_offset, corr_values
+
+    def autocorr(self, in0, signal_mask):
+        """
+        Mathematical implementation of the Correlation Function
+        :param in0: Time domain rx signal at each antenna
+        :param signal_mask: Variable containing time-domain rx signal without data symbols.
+        :return: result: correlation values from mathematical function
+        """
+        window_size = int(signal_mask.shape[0])
+        signal_mask_end = window_size
+        window_slide_dist = int(1)
+        num_windows = len(in0)
+
+        result = zeros([num_windows])
+
+        for index in range(num_windows):
+            start = index * window_slide_dist
+            end = index * window_slide_dist + window_size
+            if end > len(in0):
+                end = int(len(in0))
+                signal_mask_end = end - start
+            result[index] = sum(dot(in0[start:end], conj(signal_mask[0: signal_mask_end])))
+        return result
 
     def channel_estimate(self, buffer_rx_data, ref_sig):
         """
@@ -178,7 +443,6 @@ class PLSReceiver:
                 data_in_used_bins = data_fft[self.used_data_bins]
 
                 chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
-        # print(chan_est.shape)
         return chan_est_bins
 
     def bins2subbands(self, chan_est_bins):

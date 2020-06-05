@@ -19,9 +19,8 @@ class PLSParameters:
         self.NFFT = int(floor(self.bandwidth/self.bin_spacing))
         self.CP = int(0.25*self.NFFT)
         self.num_data_bins = int(0.75*self.NFFT)
-        # self.num_data_bins = 1
+        self.num_data_bins = 2
         self.subband_size = self.num_ant
-
 
         if self.num_data_bins == 1:
             self.used_data_bins = array([10])
@@ -49,10 +48,10 @@ class PLSParameters:
 
         # Time domain channels between Alice and Bob
         if test_case == 0:
-            h[0, 0] = array([0.3977, 0.7954 - 0.3977j, -0.1988, 0.0994, -0.0398])
-            h[0, 1] = array([0.8423j, 0.5391, 0, 0, 0])
-            h[1, 0] = array([0.1631, -0.0815 + 0.9784j, 0.0978, 0, 0])
-            h[1, 1] = array([0.0572j, 0.3659j, 0.5717 - 0.5717j, 0.4574, 0])
+            h[0, 0] = array([1])
+            h[0, 1] = array([1])
+            h[1, 0] = array([1])
+            h[1, 1] = array([1])
         else:
             print('# Load from MATLAB channel toolbox - currently not done')
             exit(0)

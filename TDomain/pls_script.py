@@ -1,13 +1,11 @@
 from numpy import ceil, tile, concatenate, zeros, ones, reshape, prod, bitwise_xor
 from numpy.random import randint
-# from TDomain.PLSParameters import PLSParameters
-# from TDomain.PLSTransmitter import PLSTransmitter
-
 from PLSParameters import PLSParameters
 from PLSTransmitter import PLSTransmitter
 from PLSReceiver import PLSReceiver
 from SynchSignal import SynchSignal
 
+plot_diagnostics = True
 SNRdB = 1000
 SNR_type = 'Analog'
 
@@ -43,8 +41,8 @@ for prof in pls_profiles.values():
     # Generate synch
     synch = SynchSignal(pls_params, num_synch_symb, num_data_symb, symb_pattern)
 
-    pls_tx = PLSTransmitter(pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb)
-    pls_rx = PLSReceiver(pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb, SNRdB, SNR_type)
+    pls_tx = PLSTransmitter(plot_diagnostics, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb)
+    pls_rx  = PLSReceiver(plot_diagnostics, pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb, SNRdB, SNR_type)
 
     # 1. Alice to Bob first transmission
     buffer_tx_time_A, ref_sig_A = pls_tx.transmit_signal_gen('Alice0', num_data_symb)
@@ -63,7 +61,7 @@ for prof in pls_profiles.values():
 
     B_key_obs_at_A = concatenate(reshape(obs_info_bits_A, prod(obs_info_bits_A.shape)))
     num_bit_err = bitwise_xor(B_key_obs_at_A, pvt_info_bits_B).sum()
-    print(num_bit_err)
+    print("Number of Errors: ", num_bit_err)
 
 
 
