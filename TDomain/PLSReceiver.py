@@ -76,6 +76,7 @@ class PLSReceiver:
 
         # Shuffle the signal for simulation.
         roll_amt = randint(-10000, 10000)
+        roll_amt = 0
         print("Rolling Signal by ", roll_amt, " amount!")
         buffer_rx_time = roll(buffer_rx_time, roll_amt)
 
@@ -167,154 +168,158 @@ class PLSReceiver:
         :return buffer_rx_data_wo_cp: Time domain rx signal at each receive antenna with CP removed
         """
 
-        symb_pattern_buffer = copy(self.symb_pattern)
-        periodicity = len(self.mask)
-        total_complete_data_symbs = 0
+        rx_data_time_power = self.power_estimate(buffer_rx_time, len(buffer_rx_time[1]))
+        if rx_data_time_power > self.power_requirements:
+            symb_pattern_buffer = copy(self.symb_pattern)
+            periodicity = len(self.mask)
+            total_complete_data_symbs = 0
 
-        buffer_rx_data = zeros((self.num_ant, self.num_data_symb * self.NFFT), dtype=complex)
+            if self.plots is True:
+                plt.title("Signal Mask for Correlation")
+                plt.plot(self.mask.real)
+                plt.plot(self.mask.imag)
+                plt.show()
 
-        if self.plots is True:
-            plt.title("Signal Mask for Correlation")
-            plt.plot(self.mask.real)
-            plt.plot(self.mask.imag)
-            plt.show()
+            window_size = (len(self.mask))
+            window_slide_dist = 1
+            num_windows = int(
+                ceil(((len(buffer_rx_time[1, :periodicity]) - window_size) / window_slide_dist) + 1))
 
-        window_size = (len(self.mask))
-        window_slide_dist = 1
-        num_windows = int(
-            ceil(((len(buffer_rx_time[1, :periodicity]) - window_size) / window_slide_dist) + 1))
+            correlation_value_buffer = zeros((self.num_ant, num_windows, 1))
+            correlation_index_buffer = zeros((self.num_ant, num_windows, 1))
 
-        correlation_value_buffer = zeros((self.num_ant, num_windows, 1))
-        correlation_index_buffer = zeros((self.num_ant, num_windows, 1))
+            index_offset, corr_values = self.correlate(buffer_rx_time[1, 0:periodicity])
+            correlation_value_buffer[1, :, 0] = corr_values.max()
+            correlation_index_buffer[1, :, 0] = index_offset.argmax()
 
-        index_offset, corr_values = self.correlate(buffer_rx_time[1, 0:periodicity])
-        correlation_value_buffer[1, :, 0] = corr_values.max()
-        correlation_index_buffer[1, :, 0] = index_offset.argmax()
+            if self.plots is True:
+                plt.title("Zadoff-Chu Correlation")
+                plt.plot(corr_values)
+                plt.show()
 
-        if self.plots is True:
-            plt.title("Zadoff-Chu Correlation")
-            plt.plot(corr_values)
-            plt.show()
+            correct_index = int(scipy.gmean(correlation_index_buffer[1, :, :]))
+            print("The correct index offset is: ", correct_index)
 
-        correct_index = int(scipy.gmean(correlation_index_buffer[1, :, :]))
-        print("The correct index offset is: ", correct_index)
+            power_estimate = self.power_estimate(buffer_rx_time, correct_index)
+            print("Estimated Power of Signal Before the start of the Data: ", power_estimate)
 
-        power_estimate = self.power_estimate(buffer_rx_time, correct_index)
-        print("Estimated Power of Signal Before the start of the Data: ", power_estimate)
+            print("Is there data before the start?")
 
-        print("Is there data before the start?")
+            if correct_index > 0:
+                if power_estimate > self.power_requirements:
+                    num_symbs_before_synch = (correct_index - 1) / (self.NFFT + self.CP)
+                    print("Yes! There are ", correct_index - 1, " time-series elements before the start of the Synch Symbol.")
+                    print("Number of symbols before Starting synch symbol: ", num_symbs_before_synch)
 
-        if correct_index > 0:
-            if power_estimate > self.power_requirements:
-                num_symbs_before_synch = (correct_index - 1) / (self.NFFT + self.CP)
-                print("Yes! There are ", correct_index - 1, " time-series elements before the start of the Synch Symbol.")
-                print("Number of symbols before Starting synch symbol: ", num_symbs_before_synch)
+                    num_data_before_synch = 0
+                    num_synch_before_synch = 0
 
-                num_data_before_synch = 0
-                num_synch_before_synch = 0
+                    num_symbs_left = num_symbs_before_synch
 
-                num_symbs_left = num_symbs_before_synch
+                    num_complete_data = 0
+                    num_complete_synch = 0
+                    num_partial_data = 0
+                    num_partial_synch = 0
 
-                num_complete_data = 0
-                num_complete_synch = 0
-                num_partial_data = 0
-                num_partial_synch = 0
+                    # Calculating the true start of the Data, including what portions are wasted symbols.
+                    for symb in range(0, int(ceil(num_symbs_before_synch)), int(self.synch_data_pattern_sum)):
+                        for symb_type in [1, 0]:
 
-                # Calculating the true start of the Data, including what portions are wasted symbols.
-                for symb in range(0, int(ceil(num_symbs_before_synch)), int(self.synch_data_pattern_sum)):
-                    for symb_type in [1, 0]:
+                            if num_symbs_left - self.synch_data_pattern[symb_type] >= 0:
+                                num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
+                                if symb_type == 0:
+                                    num_synch_before_synch += self.synch_data_pattern[symb_type]
+                                    print("Synch Symbol(s) Detected!")
+                                if symb_type == 1:
+                                    print("Data Symbol(s) Detected!")
+                                    num_data_before_synch += self.synch_data_pattern[symb_type]
 
-                        if num_symbs_left - self.synch_data_pattern[symb_type] >= 0:
-                            num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
-                            if symb_type == 0:
-                                num_synch_before_synch += self.synch_data_pattern[symb_type]
-                                print("Synch Symbol(s) Detected!")
-                            if symb_type == 1:
-                                print("Data Symbol(s) Detected!")
-                                num_data_before_synch += self.synch_data_pattern[symb_type]
+                            elif num_symbs_left - self.synch_data_pattern[symb_type] < 0 and num_symbs_left > 0:
 
-                        elif num_symbs_left - self.synch_data_pattern[symb_type] < 0 and num_symbs_left > 0:
+                                previos_num_symbs_left = num_symbs_left
+                                num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
+                                if symb_type == 0:
 
-                            previos_num_symbs_left = num_symbs_left
-                            num_symbs_left = num_symbs_left - self.synch_data_pattern[symb_type]
-                            if symb_type == 0:
+                                    if 1 < previos_num_symbs_left < 2:
+                                        num_synch_before_synch += 1
 
-                                if 1 < previos_num_symbs_left < 2:
-                                    num_synch_before_synch += 1
+                                    else:
+                                        print("Error!")
+                                    print("The rest of the data stream has ", num_symbs_left, " of a synch symbol!")
+                                    num_complete_synch = num_synch_before_synch
+                                    num_partial_synch = num_symbs_left - floor(num_symbs_left)
+                                    num_complete_data = num_data_before_synch
 
-                                else:
-                                    print("Error!")
-                                print("The rest of the data stream has ", num_symbs_left, " of a synch symbol!")
-                                num_complete_synch = num_synch_before_synch
-                                num_partial_synch = num_symbs_left - floor(num_symbs_left)
-                                num_complete_data = num_data_before_synch
+                                elif symb_type == 1:
+                                    print("The rest of the data stream has ", num_symbs_left, " of a data symbol!")
+                                    num_complete_data = num_data_before_synch
+                                    num_partial_data = num_symbs_left - floor(num_symbs_left)
+                                    num_complete_synch = num_synch_before_synch
 
-                            elif symb_type == 1:
-                                print("The rest of the data stream has ", num_symbs_left, " of a data symbol!")
-                                num_complete_data = num_data_before_synch
-                                num_partial_data = num_symbs_left - floor(num_symbs_left)
-                                num_complete_synch = num_synch_before_synch
+                    if num_symbs_before_synch < 1:
+                        num_partial_data = num_symbs_before_synch
+                        total_complete_data_symbs = self.num_data_symb - 1
+                        print("The number of partial data symbols before the correlation is, ", num_partial_data)
+                        print("The number of complete data symbols before the correlation is, ", num_complete_data)
+                        print("========================================================================================")
+                        print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
+                        print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
 
-                if num_symbs_before_synch < 1:
-                    num_partial_data = num_symbs_before_synch
-                    total_complete_data_symbs = self.num_data_symb - 1
-                    print("The number of partial data symbols before the correlation is, ", num_partial_data)
-                    print("The number of complete data symbols before the correlation is, ", num_complete_data)
-                    print("========================================================================================")
-                    print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
-                    print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
-
+                    else:
+                        total_complete_data_symbs = self.num_data_symb
+                        print("The number of partial data symbols before the correlation is, ", num_partial_data)
+                        print("The number of complete data symbols before the correlation is, ", num_complete_data)
+                        print("========================================================================================")
+                        print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
+                        print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
                 else:
-                    total_complete_data_symbs = self.num_data_symb
-                    print("The number of partial data symbols before the correlation is, ", num_partial_data)
-                    print("The number of complete data symbols before the correlation is, ", num_complete_data)
-                    print("========================================================================================")
-                    print("The number of partial synch symbols before the correlation is, ", num_partial_synch)
-                    print("The number of complete synch symbols before the correlation is, ", num_complete_synch)
+                    print("No!")
+                    num_complete_data = 0
+                    num_partial_data = 0
+                    num_complete_synch = 0
+                    num_partial_synch = 0
+                    print("Signal Prior to Correct Index does not meet power requirements!")
             else:
                 print("No!")
                 num_complete_data = 0
                 num_partial_data = 0
                 num_complete_synch = 0
                 num_partial_synch = 0
-                print("Signal Prior to Correct Index does not meet power requirements!")
-        else:
-            print("No!")
-            num_complete_data = 0
-            num_partial_data = 0
-            num_complete_synch = 0
-            num_partial_synch = 0
 
-        if num_partial_synch > 0:
-            print("There are stray SYNCH Symbols!")
-            modulo_patch = (num_complete_synch + num_partial_synch) % self.synch_data_pattern[0]
-            corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP)))
-            if num_complete_synch >= 1:
-                symb_pattern_buffer = symb_pattern_buffer[int(ceil(num_partial_synch) + num_complete_synch):]
+            if num_partial_synch > 0:
+                print("There are stray SYNCH Symbols!")
+                modulo_patch = (num_complete_synch + num_partial_synch) % self.synch_data_pattern[0]
+                corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP)))
+                if num_complete_synch >= 1:
+                    symb_pattern_buffer = symb_pattern_buffer[int(ceil(num_partial_synch) + num_complete_synch):]
+                else:
+                    symb_pattern_buffer = symb_pattern_buffer[int(self.synch_data_pattern[0]):]
+                # print("Synch-Data Pattern without wasted symbols:", symb_pattern_buffer)
+
+            elif num_partial_data > 0:
+                print("There is a stray DATA symbol!")
+                modulo_patch = (num_complete_data + num_partial_data) % self.synch_data_pattern[1]
+                corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP) + self.synch_data_pattern[0] * (self.NFFT + self.CP)))
+                symb_pattern_buffer = roll(symb_pattern_buffer, -int(self.synch_data_pattern[0]))
+                symb_pattern_buffer = symb_pattern_buffer[:-int(sum(self.synch_data_pattern))]
+                # print("Synch-Data Pattern without wasted symbols: ", symb_pattern_buffer)
+
             else:
-                symb_pattern_buffer = symb_pattern_buffer[int(self.synch_data_pattern[0]):]
-            # print("Synch-Data Pattern without wasted symbols:", symb_pattern_buffer)
+                corrected_index = correct_index
+                total_complete_data_symbs = self.num_data_symb
 
-        elif num_partial_data > 0:
-            print("There is a stray DATA symbol!")
-            modulo_patch = (num_complete_data + num_partial_data) % self.synch_data_pattern[1]
-            corrected_index = int(floor(modulo_patch * (self.NFFT + self.CP) + self.synch_data_pattern[0] * (self.NFFT + self.CP)))
-            symb_pattern_buffer = roll(symb_pattern_buffer, -int(self.synch_data_pattern[0]))
-            symb_pattern_buffer = symb_pattern_buffer[:-int(sum(self.synch_data_pattern))]
-            # print("Synch-Data Pattern without wasted symbols: ", symb_pattern_buffer)
+            buffer_rx_data = self.strip_synchs(buffer_rx_time, corrected_index, total_complete_data_symbs, symb_pattern_buffer)
 
+            # Recovering wasted symbols by stitching the end of the buffer with the start of the buffer.
+            if power_estimate > self.power_requirements and num_partial_data > 0:
+                recovered_data = self.recover_lost_data(buffer_rx_time, num_partial_data)
+                buffer_rx_data = append(recovered_data, buffer_rx_data, axis=1)
+
+            # Remove CP
+            buffer_rx_data_wo_cp = self.remove_cp(buffer_rx_data)
         else:
-            corrected_index = correct_index
-
-        buffer_rx_data = self.strip_synchs(buffer_rx_time, corrected_index, total_complete_data_symbs, symb_pattern_buffer)
-
-        # Recovering wasted symbols by stitching the end of the buffer with the start of the buffer.
-        if power_estimate > self.power_requirements and num_partial_data > 0:
-            recovered_data = self.recover_lost_data(buffer_rx_time, num_partial_data)
-            buffer_rx_data = append(recovered_data, buffer_rx_data, axis=1)
-
-        # Remove CP
-        buffer_rx_data_wo_cp = self.remove_cp(buffer_rx_data)
+            print("Power of signal is too low! Returning zeros!")
+            buffer_rx_data_wo_cp = zeros((self.num_ant, self.num_data_symb))
 
         return buffer_rx_data_wo_cp
 
@@ -342,6 +347,7 @@ class PLSReceiver:
         :param symb_pattern: variable containing the full pattern of the input data, 1 for a data symbol, 0 for a synchronization symbol
         :return: a buffer containing only the data elements
         """
+
         data_only_buffer = zeros((self.num_ant, num_complete_data * (self.NFFT + self.CP)), dtype=complex)
 
         count = 0
