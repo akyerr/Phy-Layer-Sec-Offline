@@ -91,9 +91,12 @@ class PLSReceiver:
 
         if self.plots is True:
             plt.title("RX Buffer: DATA ONLY")
-            plt.plot(buffer_rx_data[1, 0:128].real)
-            plt.plot(buffer_rx_data[1, 0:128].imag)
+            plt.plot(buffer_rx_data[1, -480:].real)
+            plt.plot(buffer_rx_data[1, -480:].imag)
             plt.show()
+            print("Anticipated Number of Data Symbols: ", self.num_data_symb)
+            print("Number of Data Symbols Recovered: ", int(buffer_rx_data.shape[1] / self.NFFT))
+
 
         # Channel estimation in each of the used bins
         chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig)
