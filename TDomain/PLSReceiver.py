@@ -1,4 +1,4 @@
-from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere
+from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere, average
 from numpy.random import normal
 from numpy.fft import fft
 from numpy.linalg import svd
@@ -30,6 +30,7 @@ class PLSReceiver:
 
         self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
+        self.num_bits_symb = int((self.num_data_bins / self.subband_size)*self.bit_codebook)
 
         self.num_subbands = pls_params.num_subbands
         self.num_PMI = self.num_subbands
@@ -45,6 +46,7 @@ class PLSReceiver:
         self.num_data_symb = num_data_symb
         self.num_synch_symb = num_synch_symb
         self.SNRdB = SNRdB
+        self.SNR_lin = 10 ** (self.SNRdB / 10)
         self.SNR_type = SNR_type
 
         self.codebook = pls_params.codebook
@@ -60,10 +62,10 @@ class PLSReceiver:
         buffer_rx_time = self.rx_signal_gen(buffer_tx_time)
 
         # synchronization - return just data symbols with CP removed
-        buffer_rx_data = self.synchronize(buffer_rx_time)
+        buffer_rx_data, buffer_synch = self.synchronize(buffer_rx_time)
 
         # Channel estimation in each of the used bins
-        chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig)
+        chan_est_bins = self.channel_estimate(buffer_rx_data, buffer_synch, ref_sig, self.synch.synch_freq)
 
         # Map bins to sub-bands to form matrices for SVD - gives estimated channel matrix in each sub-band
         chan_est_sb = self.bins2subbands(chan_est_bins)
@@ -81,7 +83,7 @@ class PLSReceiver:
         :param buffer_tx_time: Time domain tx signal streams on each antenna (matrix)
         :return buffer_rx_time: Time domain rx signal at each receive antenna
         """
-        buffer_rx_time = zeros((self.num_ant,self.total_symb_len + self.max_impulse - 1), dtype=complex)
+        buffer_rx_time = zeros((self.num_ant, self.total_symb_len + self.synch.num_unique_synch * self.num_ant * self.OFDMsymb_len), dtype=complex)
         for rx in range(self.num_ant):
             rx_sig_ant = 0  # sum rx signal at each antenna
             for tx in range(self.num_ant):
@@ -90,9 +92,8 @@ class PLSReceiver:
                 rx_sig_ant += convolve(tx_sig, chan)
                 # print(self.buffer_data_tx_time[tx, :].shape)
                 # print(self.channel_time[rx, tx, :].shape)
-
-            buffer_rx_time[rx, :] = rx_sig_ant
-        buffer_rx_time = self.awgn(buffer_rx_time)
+            buffer_rx_time[rx, :] = rx_sig_ant[:-(self.max_impulse - 1)]
+        # buffer_rx_time = self.awgn(buffer_rx_time)
         return buffer_rx_time
 
     def awgn(self, in_signal):
@@ -111,7 +112,7 @@ class PLSReceiver:
         if self.SNR_type == 'Digital':
             noise_var = (1 / bits_per_symb) * samp_per_symb * sig_pow * 10 ** (-self.SNRdB / 10)
         elif self.SNR_type == 'Analog':
-            noise_var = sig_pow * 10 ** (-self.SNRdB / 10)
+            noise_var = sig_pow * (10 ** (-self.SNRdB / 10))
         else:
             noise_var = None
             exit(0)
@@ -132,12 +133,21 @@ class PLSReceiver:
         :return buffer_rx_data: Time domain rx signal at each receive antenna with CP removed
         """
         buffer_rx_data = zeros((self.num_ant, self.num_data_symb*self.NFFT), dtype=complex)
+        buffer_synch = zeros((self.num_ant, self.OFDMsymb_len * self.synch.num_unique_synch), dtype=complex)
 
         total_symb_count = 0
         synch_symb_count = 0
         data_symb_count = 0
+        buffer_synch[0, :] = buffer_rx_time[0, 0:self.OFDMsymb_len * self.synch.num_unique_synch]
+        buffer_synch[1, :] = buffer_rx_time[1, self.OFDMsymb_len * self.synch.num_unique_synch: self.num_ant * self.synch.num_unique_synch * self.OFDMsymb_len]
+        plt.plot(buffer_synch[0, :].real)
+        plt.plot(buffer_synch[0, :].imag)
+        plt.show()
+        plt.plot(buffer_synch[1, :].real)
+        plt.plot(buffer_synch[1, :].imag)
+        plt.show()
         for symb in self.symb_pattern.tolist():
-            symb_start = total_symb_count * self.OFDMsymb_len
+            symb_start = total_symb_count * self.OFDMsymb_len + self.synch.num_unique_synch * self.num_ant * self.OFDMsymb_len
             symb_end = symb_start + self.OFDMsymb_len
             # print(symb_start, symb_end)
             if int(symb) == 0:
@@ -154,32 +164,63 @@ class PLSReceiver:
                 data_symb_count += 1
 
             total_symb_count += 1
-        # print(buffer_rx_data.shape)
-        return buffer_rx_data
+        plt.plot(buffer_rx_data[0, :].real)
+        plt.plot(buffer_rx_data[0, :].imag)
+        plt.show()
+        plt.plot(buffer_rx_data[1, :].real)
+        plt.plot(buffer_rx_data[1, :].imag)
+        plt.show()
+        return buffer_rx_data, buffer_synch
 
-    def channel_estimate(self, buffer_rx_data, ref_sig):
+    def channel_estimate(self, buffer_rx_data, buffer_synch, ref_sig, synch_ref_sig):
         """
         In PLS, only refeence signals are sent. So we use the data symbols to estimate the chanel rather than the synch.
         :param buffer_rx_data: Buffer of rx data symbols with CP removed
         :param ref_sig: QPSK ref signals on each bin for each data symbol
         :return chan_est_bins: Estimated channel in each of the used data bins
         """
+
         SNRlin = 10**(self.SNRdB/10)
-        chan_est_bins = zeros((self.num_ant, self.num_data_symb*self.num_data_bins), dtype=complex)
-        for symb in range(self.num_data_symb):
-            symb_start = symb*self.NFFT
-            symb_end = symb_start + self.NFFT
+        chan_est_bins = zeros((self.num_ant, buffer_synch.shape[0], self.num_data_bins), dtype=complex)
+        chan_est_average = zeros((self.num_ant, self.num_data_bins))
+        channel_power = zeros((2, 1), dtype=complex)
+        print(synch_ref_sig)
+        for ant in range(self.num_ant):
+            for symb in range(buffer_synch.shape[0]):
 
-            used_symb_start = symb*self.num_data_bins
-            used_symb_end = used_symb_start + self.num_data_bins
-            for ant in range(self.num_ant):
-                time_data = buffer_rx_data[ant, symb_start: symb_end]
-                data_fft = fft(time_data, self.NFFT)
-                data_in_used_bins = data_fft[self.used_data_bins]
+                symb_start = symb * self.OFDMsymb_len + self.CP
+                symb_end = symb_start + self.NFFT
 
-                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
+                used_symb_start = symb * self.num_data_bins
+                used_symb_end = used_symb_start + self.num_data_bins
+
+                synch_data = buffer_synch[ant, symb_start: symb_end]
+                synch_fft = fft(synch_data, self.NFFT)
+                synch_in_used_bins = synch_fft[self.used_data_bins]
+                est_channel = synch_in_used_bins * conj(synch_ref_sig[symb, self.used_data_bins])/(abs(synch_ref_sig[symb, self.used_data_bins]))
+
+                chan_est_bins[ant, symb, 0:] = est_channel
+
+        chan_est_average = average(chan_est_bins, axis=1)
+        channel_power = sum((chan_est_average * conj(chan_est_average))) / chan_est_average.shape[1]
+        chan_est_norm = chan_est_average / sqrt(channel_power)
+
+        # for symb in range(self.num_data_symb):
+        #     symb_start = symb*self.NFFT
+        #     symb_end = symb_start + self.NFFT
+        #
+        #     used_symb_start = symb*self.num_data_bins
+        #     used_symb_end = used_symb_start + self.num_data_bins
+        #     for ant in range(self.num_ant):
+        #         time_data = buffer_rx_data[ant, symb_start: symb_end]
+        #         data_fft = fft(time_data, self.NFFT)
+        #         data_in_used_bins = data_fft[self.used_data_bins]
+        #         est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
+        #         # est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(1 + (1 / SNRlin))
+        #         chan_est_bins[ant, used_symb_start: used_symb_end] = est_channel
         # print(chan_est.shape)
-        return chan_est_bins
+        print(chan_est_norm)
+        return chan_est_norm
 
     def bins2subbands(self, chan_est_bins):
         """
@@ -190,10 +231,10 @@ class PLSReceiver:
         """
 
         chan_est_sb = zeros((self.num_data_symb, self.num_subbands), dtype=object)
-        for symb in range(self.num_data_symb):
+        for symb in range(int(self.num_data_symb)):
             symb_start = symb*self.num_data_bins
             symb_end = symb_start + self.num_data_bins
-            chan_est = chan_est_bins[:, symb_start: symb_end] # extract est channel in one symbol
+            chan_est = chan_est_bins[:, 0: self.num_data_bins] # extract est channel in one symbol
             for sb in range(self.num_subbands):
                 sb_start = sb*self.subband_size
                 sb_end = sb_start + self.subband_size
@@ -257,6 +298,7 @@ class PLSReceiver:
                     dist[prec] = sqrt(diff_squared.sum())
                 min_dist = min(dist)
                 PMI_estimate = argwhere(dist == min_dist)
+                print(PMI_estimate)
                 PMI_sb_estimate[symb, sb] = PMI_estimate
                 bits_sb_estimate[symb, sb] = self.dec2binary(PMI_estimate, self.bit_codebook)
 

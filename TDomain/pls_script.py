@@ -23,7 +23,7 @@ pls_profiles = {
     #    'bit_codebook': 2,
     #    'synch_data_pattern': [4, 2]},
 }
-pvt_info_len = 144  # bits
+pvt_info_len = 8  # bits
 for prof in pls_profiles.values():
     pls_params = PLSParameters(prof)
     # print(pls_params.num_subbands)
@@ -53,7 +53,8 @@ for prof in pls_profiles.values():
     lsv_B0, rsv_B0, _ = pls_rx.receive_sig_process(buffer_tx_time_A, ref_sig_A)
 
     # 2. Bob to Alice - pvt info transfer starts here
-    pvt_info_bits_B = randint(0, 2, pvt_info_len)  # private info bits
+    # pvt_info_bits_B = randint(0, 2, pvt_info_len)  # private info bits
+    pvt_info_bits_B = [0, 0, 0, 1, 1, 0, 1, 1]
     # pvt_info_bits_B = ones(pvt_info_len)
     # print(pvt_info_bits_B)
     buffer_tx_time_B, ref_sig_B = pls_tx.transmit_signal_gen('Bob', num_data_symb, pvt_info_bits_B, lsv_B0)
@@ -63,7 +64,7 @@ for prof in pls_profiles.values():
 
     B_key_obs_at_A = concatenate(reshape(obs_info_bits_A, prod(obs_info_bits_A.shape)))
     num_bit_err = bitwise_xor(B_key_obs_at_A, pvt_info_bits_B).sum()
-    print(num_bit_err)
+    print(f'Number of bit errors Bob to Alice: {num_bit_err}')
 
 
 

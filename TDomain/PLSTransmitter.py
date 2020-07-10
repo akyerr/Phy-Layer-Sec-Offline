@@ -1,6 +1,6 @@
-from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var
+from numpy import pi, exp, array, zeros, dot, diag, concatenate, conj, sqrt, var, identity, copy
 from numpy.fft import ifft
-from numpy.random import choice, uniform
+from numpy.random import choice, uniform, seed
 from numpy.linalg import qr
 import matplotlib.pyplot as plt
 
@@ -28,7 +28,7 @@ class PLSTransmitter:
 
         self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
-
+        self.num_bits_symb = int((self.num_data_bins/self.subband_size)*self.bit_codebook)
         self.num_subbands = pls_params.num_subbands
         self.num_PMI = self.num_subbands
 
@@ -80,6 +80,7 @@ class PLSTransmitter:
         :return: Matrix of QPSK reference signals
         Same ref signal on both antennas in a bin. (Can be changed later)
         """
+        seed(250)
         ref_sig = zeros((self.num_data_symb, self.num_data_bins), dtype=complex)
         for symb in range(self.num_data_symb):
             for fbin in range(self.num_data_bins):
@@ -98,7 +99,8 @@ class PLSTransmitter:
                 Q, R = qr(uniform(0, 1, (self.num_ant, self.num_ant))
                           + 1j * uniform(0, 1, (self.num_ant, self.num_ant)))
 
-                unitary_mats[symb, sb] = dot(Q, diag(diag(R) / abs(diag(R))))
+                unitary_mats[symb, sb] = identity(self.num_ant)
+                # unitary_mats[symb, sb] = dot(Q, diag(diag(R) / abs(diag(R))))
         return unitary_mats
 
     def ofdm_modulate(self, num_data_symb, freq_bin_data):
@@ -123,23 +125,24 @@ class PLSTransmitter:
 
                 ofdm_symb = zeros(self.NFFT, dtype=complex)
                 ofdm_symb[self.used_data_bins] = freq_bin_data[ant, freq_data_start:freq_data_end]
-
+                # plt.stem(array(range(-int(self.NFFT/2), int(self.NFFT/2))), abs(ofdm_symb))
+                # plt.show()
                 data_ifft = ifft(ofdm_symb, self.NFFT)
                 cyclic_prefix = data_ifft[-self.CP:]
                 data_time = concatenate((cyclic_prefix, data_ifft))  # add CP
 
-                # sig_energy = abs(dot(data_time, conj(data_time).T))
-                # # power scaling to normalize to 1
-                # if sig_energy > min_pow and ant == 0:
-                #     scale_factor = sqrt(len(data_time) / sig_energy)
-                # else:
-                #     scale_factor = 1
-                # data_time *= scale_factor
-                # P += var(data_time)
+                sig_energy = abs(dot(data_time, conj(data_time).T))
+                # power scaling to normalize to 1
+                if sig_energy > min_pow and ant == 0:
+                    scale_factor = sqrt(len(data_time) / sig_energy)
+                else:
+                    scale_factor = 1
+                data_time *= scale_factor
+                P += var(data_time)
                 time_ofdm_symbols[ant, time_symb_start: time_symb_end] = data_time
 
-            # for ant in range(self.num_ant):
-            #     time_ofdm_symbols[ant, time_symb_start: time_symb_end] *= (1 / sqrt(P))
+            for ant in range(self.num_ant):
+                time_ofdm_symbols[ant, time_symb_start: time_symb_end] *= (1 / sqrt(P))
 
         return time_ofdm_symbols
 
@@ -167,14 +170,20 @@ class PLSTransmitter:
                 sb_start = sb * self.subband_size
                 sb_end = sb_start + self.subband_size
 
-                fbin_val[:, sb_start: sb_end] = precoder
+                fbin_val[:, sb_start: sb_end] = precoder #flag
 
             for fbin in range(self.num_data_bins):
                 fbin_val[:, fbin] *= ref_sig[symb, fbin]
 
             freq_bin_data[:, symb_start: symb_end] = fbin_val
-
+            dbg = 1
         return freq_bin_data
+
+    def normalize_signal(self, signal):
+        power_est = sum(signal * conj(signal)) / len(signal)
+        normalized_signal = signal / (sqrt(power_est) + 1e-10)
+
+        return normalized_signal
 
     def synch_data_mux(self, time_ofdm_data_symbols):
         """
@@ -184,40 +193,35 @@ class PLSTransmitter:
         :return: time domain tx symbol stream per antenna (contains synch and data symbols) (matrix)
         """
 
-        buffer_tx_time = self.synch.synch_mask # Add data into this
-
+        buffer_tx_time = copy(self.synch.synch_mask) # Add data into this
+        time_ofdm_data_symbols = self.normalize_signal(time_ofdm_data_symbols)
+        # plt.plot(buffer_tx_time[0, :].real)
+        # plt.plot(buffer_tx_time[0, :].imag)
+        # plt.show()
         total_symb_count = 0
         synch_symb_count = 0
         data_symb_count = 0
         for symb in self.symb_pattern.tolist():
-            symb_start = total_symb_count*self.OFDMsymb_len
+            symb_start = total_symb_count * self.OFDMsymb_len + self.synch.num_unique_synch * self.num_ant * self.OFDMsymb_len
             symb_end = symb_start + self.OFDMsymb_len
             # print(symb_start, symb_end)
             if int(symb) == 0:
                 synch_symb_count += 1
             else:
                 # print(symb, symb_start, symb_end)
-                data_start = data_symb_count*self.OFDMsymb_len
+                data_start = data_symb_count * self.OFDMsymb_len
                 data_end = data_start + self.OFDMsymb_len
-                # print(data_start, data_end)
-                # print(time_ofdm_data_symbols[:, data_start: data_end])
 
-                ### normalization tests
-                # data_ant0 = time_ofdm_data_symbols[0, data_start: data_end]
-                # data_ant1 = time_ofdm_data_symbols[1, data_start: data_end]
-                # data_p0 = data_ant0*conj(data_ant0)/self.OFDMsymb_len
-                # data_p1 = data_ant1 * conj(data_ant1) / self.OFDMsymb_len
-                #
-                # data
-                ###
                 buffer_tx_time[:, symb_start: symb_end] = time_ofdm_data_symbols[:, data_start: data_end]
                 data_symb_count += 1
 
             total_symb_count += 1
-        # print('synch ', synch_symb_count, 'data ', data_symb_count, 'total ', total_symb_count)
-        print(buffer_tx_time.shape)
+
         plt.plot(buffer_tx_time[0, :].real)
         plt.plot(buffer_tx_time[0, :].imag)
+        plt.show()
+        plt.plot(buffer_tx_time[1, :].real)
+        plt.plot(buffer_tx_time[1, :].imag)
         plt.show()
         return buffer_tx_time
 
@@ -231,12 +235,15 @@ class PLSTransmitter:
         bits_subband = zeros((self.num_data_symb, self.num_subbands), dtype=object)
 
         for symb in range(self.num_data_symb):
+            symb_bits_start = symb * self.num_bits_symb
+            symb_bits_end = symb_bits_start + self.num_bits_symb
+            symb_bits = pvt_info_bits[symb_bits_start: symb_bits_end]
             # Map secret key to subbands
             for sb in range(self.num_subbands):
-                start = sb * self.bit_codebook
-                fin = start + self.bit_codebook
+                sb_bits_start = sb * self.bit_codebook
+                sb_bits_fin = sb_bits_start + self.bit_codebook
 
-                bits_subband[symb, sb] = pvt_info_bits[start: fin]
+                bits_subband[symb, sb] = symb_bits[sb_bits_start: sb_bits_fin]
 
         return bits_subband
 
