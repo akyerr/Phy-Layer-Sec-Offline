@@ -24,7 +24,9 @@ class SynchSignal:
         self.used_synch_bins = array(neg_synch_bins + pos_synch_bins)
 
         self.num_data_symb = num_data_symb
-        self.prime_nos = [23, 41] * self.num_data_symb
+        self.prime_no = [23, 41]
+        self.prime_nos = self.prime_no * self.num_data_symb
+        self.num_unique_synch = len(self.prime_no)
         assert len(self.prime_nos) == self.num_synch_symb
 
         self.synch_signals = zeros((self.num_synch_symb, self.OFDMsymb_len), dtype=complex)
@@ -51,18 +53,25 @@ class SynchSignal:
         self.synch_start = list()
         for symb in self.symb_pattern.tolist():
             if symb == 0:
-                symb_start = total_symb_count*self.OFDMsymb_len
+                modulo_switch = int(synch_symb_count % int(self.num_ant * self.num_unique_synch))
+                symb_start = total_symb_count * self.OFDMsymb_len
                 symb_end = symb_start + self.OFDMsymb_len
                 # print(symb_start, symb_end)
                 self.synch_start.append(symb_start)
-                self.synch_mask[0, symb_start: symb_end] = self.synch_signals[synch_symb_count]
+                if modulo_switch == 0 or modulo_switch == 1:
+                    self.synch_mask[0, symb_start: symb_end] = self.synch_signals[synch_symb_count]
+                elif modulo_switch == 2 or modulo_switch == 3:
+                    self.synch_mask[1, symb_start: symb_end] = self.synch_signals[synch_symb_count]
                 synch_symb_count += 1
 
             total_symb_count += 1
         # print(self.synch_start)
-        # plt.plot(self.synch_mask[0, :].real)
-        # plt.plot(self.synch_mask[0, :].imag)
-        # plt.show()
+        plt.plot(self.synch_mask[0, :].real)
+        plt.plot(self.synch_mask[0, :].imag)
+        plt.show()
+        plt.plot(self.synch_mask[1, :].real)
+        plt.plot(self.synch_mask[1, :].imag)
+        plt.show()
 
     def zadoff_chu_gen(self, prime):
         x0 = array(range(0, self.num_synch_bins))

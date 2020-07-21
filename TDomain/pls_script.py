@@ -23,7 +23,7 @@ pls_profiles = {
     #    'bit_codebook': 2,
     #    'synch_data_pattern': [4, 2]},
 }
-pvt_info_len = 144  # bits
+pvt_info_len = 8  # bits
 for prof in pls_profiles.values():
     pls_params = PLSParameters(prof)
     # print(pls_params.num_subbands)
@@ -47,23 +47,25 @@ for prof in pls_profiles.values():
     pls_rx = PLSReceiver(pls_params, synch, symb_pattern, total_num_symb, num_data_symb, num_synch_symb, SNRdB, SNR_type)
 
     # 1. Alice to Bob first transmission
-    buffer_tx_time_A, ref_sig_A = pls_tx.transmit_signal_gen('Alice0', num_data_symb)
+    buffer_tx_time_A, ref_sig_A, precoders_A = pls_tx.transmit_signal_gen('Alice0', num_data_symb)
 
     # 1. Bob first reception
-    lsv_B0, rsv_B0, _ = pls_rx.receive_sig_process(buffer_tx_time_A, ref_sig_A)
+    lsv_B0, rsv_B0, _ = pls_rx.receive_sig_process(buffer_tx_time_A, ref_sig_A, precoders_A)
 
     # 2. Bob to Alice - pvt info transfer starts here
-    pvt_info_bits_B = randint(0, 2, pvt_info_len)  # private info bits
+    # pvt_info_bits_B = randint(0, 2, pvt_info_len)  # private info bits
     # pvt_info_bits_B = ones(pvt_info_len)
+    pvt_info_bits_B = [0, 0, 0, 1, 1, 0, 1, 1]
     # print(pvt_info_bits_B)
-    buffer_tx_time_B, ref_sig_B = pls_tx.transmit_signal_gen('Bob', num_data_symb, pvt_info_bits_B, lsv_B0)
+    buffer_tx_time_B, ref_sig_B, precoders_B = pls_tx.transmit_signal_gen('Bob', num_data_symb, pvt_info_bits_B, lsv_B0)
 
     #2. Alice reception
-    lsv_A, rsv_A, obs_info_bits_A = pls_rx.receive_sig_process(buffer_tx_time_B, ref_sig_B)
+    lsv_A, rsv_A, obs_info_bits_A = pls_rx.receive_sig_process(buffer_tx_time_B, ref_sig_B, precoders_B)
 
     B_key_obs_at_A = concatenate(reshape(obs_info_bits_A, prod(obs_info_bits_A.shape)))
     num_bit_err = bitwise_xor(B_key_obs_at_A, pvt_info_bits_B).sum()
-    print(num_bit_err)
+    print(f'Number of bit errors Bob to Alice: {num_bit_err}')
+    print('B Key OBS:', B_key_obs_at_A)
 
 
 

@@ -19,7 +19,7 @@ class PLSParameters:
         self.NFFT = int(floor(self.bandwidth/self.bin_spacing))
         self.CP = int(0.25*self.NFFT)
         # self.num_data_bins = int(0.75*self.NFFT)
-        self.num_data_bins = 2
+        self.num_data_bins = 4
         # self.num_data_bins = 1
         self.subband_size = self.num_ant
 
@@ -37,6 +37,7 @@ class PLSParameters:
         # print(self.num_subbands)
         self.num_PMI = self.num_subbands
         self.max_impulse = self.NFFT
+        # self.max_impulse = 1
         self.channel_time = zeros((self.num_ant, self.num_ant, self.max_impulse), dtype=complex)
         self.channel_freq = zeros((self.num_ant, self.num_ant, self.NFFT), dtype=complex)
 

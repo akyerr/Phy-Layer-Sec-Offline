@@ -1,4 +1,4 @@
-from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere
+from numpy import conj, sqrt, convolve, zeros, var, diag, angle, dot, exp, array, real, argwhere, tile
 from numpy.random import normal
 from numpy.fft import fft
 from numpy.linalg import svd
@@ -30,6 +30,7 @@ class PLSReceiver:
 
         self.used_data_bins = pls_params.used_data_bins
         self.subband_size = self.num_ant
+        self.num_bits_symb = int((self.num_data_bins / self.subband_size)*self.bit_codebook)
 
         self.num_subbands = pls_params.num_subbands
         self.num_PMI = self.num_subbands
@@ -49,7 +50,7 @@ class PLSReceiver:
 
         self.codebook = pls_params.codebook
 
-    def receive_sig_process(self, buffer_tx_time, ref_sig):
+    def receive_sig_process(self, buffer_tx_time, ref_sig, precoders):
         """
         This method deals with all the receiver functions - generate rx signal (over channel + noise), synhronization,
         channel estimation, SVD, precoder detection, bit recovery
@@ -63,7 +64,7 @@ class PLSReceiver:
         buffer_rx_data = self.synchronize(buffer_rx_time)
 
         # Channel estimation in each of the used bins
-        chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig)
+        chan_est_bins = self.channel_estimate(buffer_rx_data, ref_sig, precoders)
 
         # Map bins to sub-bands to form matrices for SVD - gives estimated channel matrix in each sub-band
         chan_est_sb = self.bins2subbands(chan_est_bins)
@@ -92,7 +93,7 @@ class PLSReceiver:
                 # print(self.channel_time[rx, tx, :].shape)
 
             buffer_rx_time[rx, :] = rx_sig_ant
-        buffer_rx_time = self.awgn(buffer_rx_time)
+        # buffer_rx_time = self.awgn(buffer_rx_time)
         return buffer_rx_time
 
     def awgn(self, in_signal):
@@ -157,7 +158,7 @@ class PLSReceiver:
         # print(buffer_rx_data.shape)
         return buffer_rx_data
 
-    def channel_estimate(self, buffer_rx_data, ref_sig):
+    def channel_estimate(self, buffer_rx_data, ref_sig, precoders):
         """
         In PLS, only refeence signals are sent. So we use the data symbols to estimate the chanel rather than the synch.
         :param buffer_rx_data: Buffer of rx data symbols with CP removed
@@ -165,7 +166,17 @@ class PLSReceiver:
         :return chan_est_bins: Estimated channel in each of the used data bins
         """
         SNRlin = 10**(self.SNRdB/10)
-        chan_est_bins = zeros((self.num_ant, self.num_data_symb*self.num_data_bins), dtype=complex)
+        chan_est_bins_sort = zeros((self.num_ant, self.num_data_symb, int(self.num_data_bins / self.subband_size), self.subband_size), dtype=complex)
+        chan_est_bins = zeros((self.num_ant, self.num_data_symb * self.num_data_bins), dtype=complex)
+        # chan_ant_0_subband_0 = zeros((int(self.num_data_bins * self.num_data_symb / self.subband_size)),
+        #                              dtype=complex)
+        # chan_ant_0_subband_1 = zeros((int(self.num_data_bins * self.num_data_symb / self.subband_size)),
+        #                              dtype=complex)
+        # chan_ant_1_subband_0 = zeros((int(self.num_data_bins * self.num_data_symb / self.subband_size)),
+        #                              dtype=complex)
+        # chan_ant_1_subband_1 = zeros((int(self.num_data_bins * self.num_data_symb / self.subband_size)),
+        #                              dtype=complex)
+        count = 0
         for symb in range(self.num_data_symb):
             symb_start = symb*self.NFFT
             symb_end = symb_start + self.NFFT
@@ -176,10 +187,38 @@ class PLSReceiver:
                 time_data = buffer_rx_data[ant, symb_start: symb_end]
                 data_fft = fft(time_data, self.NFFT)
                 data_in_used_bins = data_fft[self.used_data_bins]
-
-                chan_est_bins[ant, used_symb_start: used_symb_end] = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
-        # print(chan_est.shape)
+                est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
+                chan_est_bins[ant, used_symb_start: used_symb_end] = est_channel
+                # est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(1 + (1 / SNRlin))
+                for subband_index in range(int(self.num_data_bins / self.subband_size)):
+                    start = subband_index * self.subband_size
+                    end = start + self.subband_size
+                    chan_est_bins_sort[:, symb, subband_index, :] = est_channel[start: end]
+                count += 1
+        self.channel_check(chan_est_bins_sort, ref_sig, precoders)
+        # for subband_group in range(int(self.num_data_symb * self.num_data_bins / (self.subband_size * self.num_ant))):
+        #     start = subband_group * self.subband_size
+        #     end = start + self.subband_size
+        #     start0 = subband_group * self.num_data_bins
+        #     end0 = start0 + self.subband_size
+        #     start1 = subband_group * self.num_data_bins + self.subband_size
+        #     end1 = start1 + self.subband_size
+        #     chan_ant_0_subband_0[start: end] = chan_est_bins[0, start0: end0]
+        #     chan_ant_1_subband_1[start: end] = chan_est_bins[0, start1: end1]
+        #     chan_ant_1_subband_0[start: end] = chan_est_bins[1, start0: end0]
+        #     chan_ant_1_subband_1[start: end] = chan_est_bins[1, start1: end1]
+        #
+        # channel_power = sum((chan_est_bins * conj(chan_est_bins))) / chan_est_bins.shape[1]
+        # chan_est_norm = chan_est_bins / (sqrt(channel_power) * sqrt(2))
         return chan_est_bins
+
+    def channel_check(self, chan_est_bins_sort, ref_sig, precoders):
+        chan_symb0_sb_0 = chan_est_bins_sort[:, 0, 0, :]
+        ref_sig_symb0_sb_0 = tile(ref_sig[0, 0:2], (2, 1))
+        precoder_symb0_sb_0 = precoders[0, 0]
+        G = (ref_sig_symb0_sb_0 * precoder_symb0_sb_0)
+        chan = chan_symb0_sb_0 / G
+        return 0
 
     def bins2subbands(self, chan_est_bins):
         """
@@ -199,6 +238,7 @@ class PLSReceiver:
                 sb_end = sb_start + self.subband_size
 
                 chan_est_sb[symb, sb] = chan_est[:, sb_start: sb_end]
+                chan_est_sb_avg = chan_est_sb[:, 0]
         # print(chan_est_sb[23])
         return chan_est_sb
 
