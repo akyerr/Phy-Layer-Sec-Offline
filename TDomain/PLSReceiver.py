@@ -187,6 +187,7 @@ class PLSReceiver:
                 time_data = buffer_rx_data[ant, symb_start: symb_end]
                 data_fft = fft(time_data, self.NFFT)
                 data_in_used_bins = data_fft[self.used_data_bins]
+
                 est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(abs(ref_sig[symb, :])) # channel at the used bins
                 chan_est_bins[ant, used_symb_start: used_symb_end] = est_channel
                 # est_channel = data_in_used_bins*conj(ref_sig[symb, :])/(1 + (1 / SNRlin))
@@ -210,6 +211,7 @@ class PLSReceiver:
         #
         # channel_power = sum((chan_est_bins * conj(chan_est_bins))) / chan_est_bins.shape[1]
         # chan_est_norm = chan_est_bins / (sqrt(channel_power) * sqrt(2))
+
         return chan_est_bins
 
     def channel_check(self, chan_est_bins_sort, ref_sig, precoders):

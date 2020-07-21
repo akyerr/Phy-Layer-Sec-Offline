@@ -52,14 +52,14 @@ class PLSParameters:
         # Time domain channels between Alice and Bob
         if test_case == 0:
             # h = 1
-            h[0, 0] = array([1])
-            h[0, 1] = array([1])
-            h[1, 0] = array([1])
-            h[1, 1] = array([1])
-            # h[0, 0] = array([0.3977])
-            # h[0, 1] = array([0.8423j])
-            # h[1, 0] = array([0.1631])
-            # h[1, 1] = array([0.0572j])
+            # h[0, 0] = array([1])
+            # h[0, 1] = array([1])
+            # h[1, 0] = array([1])
+            # h[1, 1] = array([1])
+            h[0, 0] = array([0.3977])
+            h[0, 1] = array([0.8423j])
+            h[1, 0] = array([0.1631])
+            h[1, 1] = array([0.0572j])
             # h[0, 0] = array([0.3977, 0.7954 - 0.3977j, -0.1988, 0.0994, -0.0398])
             # h[0, 1] = array([0.8423j, 0.5391, 0, 0, 0])
             # h[1, 0] = array([0.1631, -0.0815 + 0.9784j, 0.0978, 0, 0])
