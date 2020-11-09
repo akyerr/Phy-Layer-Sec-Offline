@@ -3,8 +3,10 @@ import cv2
 from numpy import zeros, frombuffer, uint8, where
 import matplotlib.pyplot as plt
 import pandas as pd
-from FDomain.PLSParameters import PLSParameters
-from FDomain.Node import Node
+import sys
+sys.path.append(".")
+from PLSParameters import PLSParameters
+from Node import Node
 
 
 def bin_array2dec(bin_array):
@@ -26,13 +28,13 @@ def get_img_from_fig(fig, dpi=180):
     return img
 
 max_SNR = 20
-SNR_dB = range(0, max_SNR, 5)
+# SNR_dB = range(0, max_SNR, 5)
+SNR_dB = [1000]
 # SNR_dB = [45, 45]
 max_iter = 2
 
 pls_profiles = {
-               0: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
-               1: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 2},
+               0: {'bandwidth': 960e3, 'bin_spacing': 15e3, 'num_ant': 2, 'bit_codebook': 1},
                }
 
 # dbg = 1
@@ -48,10 +50,7 @@ for prof in pls_profiles.values():
     N = Node(pls_params)  # Wireless network node - could be Alice or Bob
 
     for s in range(len(SNR_dB)):
-        num_errorsA = zeros(max_iter, dtype=int)
-        num_errorsB = zeros(max_iter, dtype=int)
-        transmitted_PMI = zeros((len(SNR_dB), max_iter), dtype=int)
-        observed_precoder = zeros((len(SNR_dB), max_iter), dtype=object)
+ 
         for i in range(max_iter):
             HAB, HBA = pls_params.channel_gen()
 
@@ -72,11 +71,11 @@ for prof in pls_profiles.values():
             ## 2. At Alice
             UA, _, VA = N.sv_decomp(rx_sigA)
 
-            observed_precoder[s, i] = VA[0]
+#             observed_precoder = VA[0]
 
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            ax.plot(observed_precoder[s, i].real, observed_precoder[s, i].imag, 'o', color='black')
+            ax.plot(VA[0].real, VA[0].imag, 'o', color='black')
             plt.xlim((-1, 1))
             plt.ylim((-1, 1))
             plt.show()
